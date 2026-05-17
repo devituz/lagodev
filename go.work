@@ -1,0 +1,17 @@
+// go.work is for local development only. When examples are run from a
+// fresh checkout (or by external users who `go install` an example),
+// each example's go.mod resolves the lagodev dependency from the
+// proxy at the pinned version.
+//
+// Locally, the workspace lets edits to the main module flow through to
+// the example binaries without manual replace directives.
+go 1.25.0
+
+use (
+	.
+	./examples/blog
+	./examples/chi
+	./examples/echo
+	./examples/fiber
+	./examples/gin
+)

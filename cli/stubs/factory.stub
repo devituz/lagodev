@@ -1,0 +1,25 @@
+package {{ .Package }}
+
+import (
+{{- if .NeedsTimeImport }}
+	"time"
+
+{{ end }}
+{{- if .ModelImport }}
+	"{{ .ModelImport }}"
+
+{{ end }}
+	"github.com/devituz/lagodev/database"
+	"github.com/devituz/lagodev/factory"
+)
+
+// {{ .Name }} returns a factory for building {{ .ModelRef }} instances.
+func {{ .Name }}(conn *database.Connection) *factory.Factory[{{ .ModelRef }}] {
+	return factory.New(conn, func(f *factory.Faker) {{ .ModelRef }} {
+		return {{ .ModelRef }}{
+{{- range .Fields }}
+			{{ .FieldName }}: {{ .FakerCall }},
+{{- end }}
+		}
+	})
+}

@@ -1,0 +1,21 @@
+package {{ .Package }}
+
+import (
+{{- if .NeedsTimeImport }}
+	"time"
+
+{{ end }}
+	"github.com/devituz/lagodev/orm"
+)
+
+// {{ .Name }} is a lagodev model.
+type {{ .Name }} struct {
+	orm.Model
+{{ range .Fields }}
+	{{ .FieldName }} {{ .GoType }} `column:"{{ .Column }}"`
+{{- end }}
+}
+
+// TableName overrides the conventionally inferred table name.
+// Remove this method to use the default ({{ .Table }}).
+func ({{ .Name }}) TableName() string { return "{{ .Table }}" }

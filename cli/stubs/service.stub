@@ -1,0 +1,96 @@
+package {{ .Package }}
+
+import (
+	"context"
+	"errors"
+
+{{- if .ModelImport }}
+
+	"{{ .ModelImport }}"
+{{ end }}
+
+	"github.com/devituz/lagodev/database"
+	"github.com/devituz/lagodev/orm"
+)
+
+// {{ .Name }} is the framework-agnostic CRUD layer for {{ .ModelRef }}. It
+// returns plain Go values and errors — Gin, Fiber, Echo, gRPC, GraphQL,
+// or net/http handlers can wrap it however they like.
+type {{ .Name }} struct {
+	Conn *database.Connection
+}
+
+// New{{ .Name }} constructs the service against an open connection.
+func New{{ .Name }}(conn *database.Connection) *{{ .Name }} {
+	return &{{ .Name }}{Conn: conn}
+}
+
+// List returns all records, ordered by id descending.
+func (s *{{ .Name }}) List(ctx context.Context) ([]{{ .ModelRef }}, error) {
+	var items []{{ .ModelRef }}
+	err := orm.Query[{{ .ModelRef }}](s.Conn).OrderBy("id", "desc").Get(ctx, &items)
+	return items, err
+}
+
+// Paginate returns one page of records.
+func (s *{{ .Name }}) Paginate(ctx context.Context, page, perPage int) ([]{{ .ModelRef }}, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 25
+	}
+	total, err := orm.Query[{{ .ModelRef }}](s.Conn).Count(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	var items []{{ .ModelRef }}
+	err = orm.Query[{{ .ModelRef }}](s.Conn).
+		OrderBy("id", "desc").
+		Limit(perPage).
+		Offset((page - 1) * perPage).
+		Get(ctx, &items)
+	return items, total, err
+}
+
+// Get loads one record by primary key. Returns orm.ErrNotFound when missing.
+func (s *{{ .Name }}) Get(ctx context.Context, id uint64) (*{{ .ModelRef }}, error) {
+	return orm.Query[{{ .ModelRef }}](s.Conn).Find(ctx, id)
+}
+
+// Create inserts a new record. The passed-in pointer's ID/CreatedAt fields
+// are populated on success.
+func (s *{{ .Name }}) Create(ctx context.Context, m *{{ .ModelRef }}) error {
+	return orm.Save(ctx, s.Conn, m)
+}
+
+// Update persists changes to an existing record. The id is taken from the
+// model's primary key; pass a freshly-loaded model to avoid overwriting
+// concurrent edits.
+func (s *{{ .Name }}) Update(ctx context.Context, m *{{ .ModelRef }}) error {
+	if m == nil {
+		return errors.New("nil model")
+	}
+	return orm.Save(ctx, s.Conn, m)
+}
+
+// Delete soft-deletes the record. Use ForceDelete for a hard delete.
+func (s *{{ .Name }}) Delete(ctx context.Context, m *{{ .ModelRef }}) error {
+	return orm.Delete(ctx, s.Conn, m)
+}
+
+// ForceDelete bypasses soft-delete and removes the row from the database.
+func (s *{{ .Name }}) ForceDelete(ctx context.Context, m *{{ .ModelRef }}) error {
+	return orm.ForceDelete(ctx, s.Conn, m)
+}
+
+// Restore reverts a soft-delete. Only valid for models with SoftDeletes().
+func (s *{{ .Name }}) Restore(ctx context.Context, m *{{ .ModelRef }}) error {
+	return orm.Restore(ctx, s.Conn, m)
+}
+
+// Query exposes the underlying ORM query builder for custom filters that
+// don't fit the canned CRUD methods above.
+func (s *{{ .Name }}) Query() *orm.Builder[{{ .ModelRef }}] {
+	return orm.Query[{{ .ModelRef }}](s.Conn)
+}

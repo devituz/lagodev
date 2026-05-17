@@ -1,0 +1,72 @@
+package {{ .Package }}
+
+import (
+{{- if .ModelImport }}
+	"{{ .ModelImport }}"
+{{ end }}
+{{- if .ServiceImport }}
+
+	"{{ .ServiceImport }}"
+{{ end }}
+
+	"github.com/devituz/lagodev/database"
+	"github.com/devituz/lagodev/web"
+)
+
+// {{ .Name }} — {{ .ModelRef }} resursi uchun RESTful HTTP handler'lar.
+// Har bir metod (any, error) qaytaradi — Laravel uslubi:
+//   - non-nil any  → framework JSON sifatida 200 javobi bilan jo'natadi
+//   - non-nil err  → orm.ErrNotFound → 404, qolgani → 500
+//   - har ikkalasi nil → 204 No Content
+type {{ .Name }} struct {
+	Service *{{ .ServiceRef }}
+}
+
+// New{{ .Name }} — service'ni biriktirilgan ulanish bilan quradi.
+func New{{ .Name }}(conn *database.Connection) *{{ .Name }} {
+	return &{{ .Name }}{Service: {{ .ServiceConstructor }}(conn)}
+}
+
+// Index — GET /{{ .Resource }} — barcha yozuvlar.
+func (c *{{ .Name }}) Index(ctx *web.Context) (any, error) {
+	return c.Service.List(ctx.Ctx())
+}
+
+// Show — GET /{{ .Resource }}/{id} — bitta yozuv.
+func (c *{{ .Name }}) Show(ctx *web.Context) (any, error) {
+	return c.Service.Get(ctx.Ctx(), ctx.ParamUint("id"))
+}
+
+// Store — POST /{{ .Resource }} — yangi yozuv yaratish.
+func (c *{{ .Name }}) Store(ctx *web.Context) (any, error) {
+	var item {{ .ModelRef }}
+	if err := ctx.Bind(&item); err != nil {
+		return nil, err
+	}
+	if err := c.Service.Create(ctx.Ctx(), &item); err != nil {
+		return nil, err
+	}
+	return ctx.Created(item), nil
+}
+
+// Update — PUT/PATCH /{{ .Resource }}/{id} — yozuvni yangilash.
+func (c *{{ .Name }}) Update(ctx *web.Context) (any, error) {
+	existing, err := c.Service.Get(ctx.Ctx(), ctx.ParamUint("id"))
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Bind(existing); err != nil {
+		return nil, err
+	}
+	return existing, c.Service.Update(ctx.Ctx(), existing)
+}
+
+// Destroy — DELETE /{{ .Resource }}/{id} — yozuvni soft-delete qilish.
+// nil, nil qaytaradi → framework 204 No Content yuboradi.
+func (c *{{ .Name }}) Destroy(ctx *web.Context) (any, error) {
+	item, err := c.Service.Get(ctx.Ctx(), ctx.ParamUint("id"))
+	if err != nil {
+		return nil, err
+	}
+	return nil, c.Service.Delete(ctx.Ctx(), item)
+}

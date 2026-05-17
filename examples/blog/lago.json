@@ -1,0 +1,9 @@
+{
+  "paths": {
+    "models":     "models",
+    "migrations": "migrations",
+    "factories":  "factories",
+    "seeders":    "seeders",
+    "tests":      "tests"
+  }
+}

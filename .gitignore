@@ -1,0 +1,27 @@
+# Build output
+bin/
+*.exe
+*.out
+coverage.out
+coverage.html
+
+# Go
+*.test
+vendor/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# Generated SQLite databases / dumps
+*.db
+*.sqlite
+*.sqlite3
+!testdata/*.db

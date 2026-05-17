@@ -1,0 +1,19 @@
+package {{ .Package }}_test
+
+import (
+	"context"
+	"testing"
+
+	lagotest "github.com/devituz/lagodev/testing"
+)
+
+func Test{{ .Name }}(t *testing.T) {
+	conn, cleanup := lagotest.SQLite(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	_ = conn
+	_ = ctx
+
+	// TODO: write your assertions.
+}
