@@ -3,6 +3,99 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.10.0 — 2026-05-22
+
+### Added
+
+- **`adapters/gin` — official Gin adapter (separate module).** Brings
+  the Laravel-style DX from the `web` package to Gin users without
+  forcing `gin` as a dependency of the main module.
+  - `lagogin.H` — wraps `func(*Ctx) (any, error)` into a
+    `gin.HandlerFunc` with automatic status mapping
+    (`orm.ErrNotFound` → 404, `*ValidationError` → 422, other errors
+    → 500, `nil` → 204, value → 200).
+  - `lagogin.Resource(r, "posts", ctrl)` — one-liner that registers
+    the 5 canonical RESTful routes and records them in a global
+    registry for OpenAPI introspection.
+  - `lagogin.AuthJWT(manager)`, `Auth()`, `CORS()`, `RequestTimeout()`
+    — middleware bundle. `Ctx.UserID()` / `Ctx.Role()` accessors for
+    JWT claims.
+  - `lagogin.Paginate[T]` — Laravel-style `Page{Data,Total,Page,
+    PerPage,LastPage,From,To}` envelope driven by `?page=&per_page=`.
+  - `lagogin.Validate` + `Ctx.BindAndValidate(&dto)` — struct-tag
+    validator (`required`, `min`, `max`, `email`, `url`, `oneof`,
+    `alpha`, `alphanumeric`, `uuid`) that maps failures to 422 +
+    `{"errors": {...}}`.
+  - `lagogin.QueryLog(conn)` + `Instrument(conn)` — per-request SQL
+    counter surfaced as `X-DB-Query-Count` header, with N+1 warning
+    above a configurable threshold.
+  - `lagogin.OpenAPI(info)` + `ServeOpenAPI(r, info)` — generates a
+    3.0 spec from the Resource registry and mounts `/openapi.json`
+    plus a Swagger UI at `/docs`.
+  - Install: `go get github.com/devituz/lagodev/adapters/gin@v0.10.0`.
+- **`lago new <name> --framework=web|gin`** — full project scaffolder
+  that emits `main.go`, `go.mod`, `.env`, `lago.json`, `config/`,
+  `routes/`, and stub package directories. The Gin variant wires up
+  `lagogin.CORS`, `QueryLog`, and `Resource()` out of the box;
+  generated `main.go` loads `.env`, `.env.local`, `.env.$APP_ENV`,
+  and blank-imports `migrations/` and `seeders/` so generated init()
+  hooks run automatically.
+- **`lago make:controller --framework=gin`** — emits a controller
+  bound to the lagogin adapter, including `Paginate[T]` on Index and
+  `BindAndValidate` on Store.
+- **`lago make:model --framework=gin`** — propagates the flag down
+  so `-c` (or `-a`) generates a Gin-flavored controller.
+
+### Changed
+
+- **Model stub is now minimal.** Generated models no longer carry
+  `column:"…"` tags; the reflection cache derives column names from
+  field names automatically (`Email` → `email`, `PasswordHash` →
+  `password_hash`). Existing models keep working — explicit tags
+  still override the auto-derivation. Example:
+
+  ```go
+  // before (v0.9.0):
+  type User struct {
+      orm.Model
+      Email string `column:"email"`
+      Name  string `column:"name"`
+  }
+
+  // after (v0.10.0 stub):
+  type User struct {
+      orm.Model
+      Email string
+      Name  string
+  }
+  ```
+
+- **`examples/gin/main.go` rewritten.** 179 → ~130 lines; every
+  `if err != nil { c.JSON(...) }` block removed in favor of
+  `lagogin.H` and `Resource()`. Demonstrates Paginate, AuthJWT,
+  ServeOpenAPI, and QueryLog end-to-end.
+- `inflect.Pascal` preserves existing case when the input has no
+  underscores and contains at least one uppercase letter.
+  `Pascal("TagService")` now returns `"TagService"` (previously
+  `"Tagservice"`), so make:service/factory/controller stop emitting
+  duplicated suffixes like `tagservice_service.go`.
+- `--fields=foo:string:default('bar')` now compiles as valid Go.
+  The migration generator quotes the default through a small
+  helper (`'bar'` → `"bar"`, numeric/bool literals pass through).
+
+### Fixed
+
+- Scaffold project's `main.go` now loads the `.env` chain so DB
+  configuration from environment files actually reaches
+  `database.Open`. Previously the scaffolded binary fell back to
+  driver defaults and ignored `DB_DATABASE`, `DB_HOST`, etc.
+
+### Dependencies
+
+- New optional dependency: `github.com/gin-gonic/gin v1.10.0` (only
+  required when importing `adapters/gin`; the main module is
+  unchanged).
+
 ## v0.9.0 — 2026-05-18
 
 ### Added
