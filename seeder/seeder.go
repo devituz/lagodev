@@ -216,3 +216,24 @@ func (f *FuncSeeder) Run(ctx context.Context, c *database.Connection) error {
 func Define(name string, deps []string, fn func(ctx context.Context, conn *database.Connection) error) Seeder {
 	return &FuncSeeder{N: name, Deps: deps, Fn: fn}
 }
+
+// Call runs the given seeders in the order they were passed. Intended for
+// use inside a DatabaseSeeder's Run() to orchestrate child seeders the
+// Laravel way:
+//
+//	func (DatabaseSeeder) Run(ctx context.Context, conn *database.Connection) error {
+//	    return seeder.Call(ctx, conn,
+//	        &CategorySeeder{},
+//	        &UserSeeder{},
+//	    )
+//	}
+//
+// Errors are wrapped with the failing seeder's Name() for easier triage.
+func Call(ctx context.Context, conn *database.Connection, seeders ...Seeder) error {
+	for _, s := range seeders {
+		if err := s.Run(ctx, conn); err != nil {
+			return fmt.Errorf("seeder %s: %w", s.Name(), err)
+		}
+	}
+	return nil
+}

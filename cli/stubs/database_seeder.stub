@@ -1,0 +1,24 @@
+package {{ .Package }}
+
+import (
+	"context"
+
+	"github.com/devituz/lagodev/database"
+	"github.com/devituz/lagodev/seeder"
+)
+
+func init() { seeder.Register(&DatabaseSeeder{}) }
+
+// DatabaseSeeder is the entry point — `artisan db:seed` runs only this
+// seeder. Add other seeders to the Call() list below; comment a line to
+// skip it temporarily.
+type DatabaseSeeder struct{}
+
+func (DatabaseSeeder) Name() string { return "DatabaseSeeder" }
+
+func (DatabaseSeeder) Run(ctx context.Context, conn *database.Connection) error {
+	return seeder.Call(ctx, conn,
+		// &CategorySeeder{},
+		// &UserSeeder{},
+	)
+}

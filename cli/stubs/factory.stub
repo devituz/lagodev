@@ -13,7 +13,7 @@ import (
 	"github.com/devituz/lagodev/factory"
 )
 
-// {{ .Name }} returns a factory for building {{ .ModelRef }} instances.
+// Usage: factories.{{ .Name }}(conn).Count(10).Create(ctx)
 func {{ .Name }}(conn *database.Connection) *factory.Factory[{{ .ModelRef }}] {
 	return factory.New(conn, func(f *factory.Faker) {{ .ModelRef }} {
 		return {{ .ModelRef }}{

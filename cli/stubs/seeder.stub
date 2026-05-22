@@ -7,23 +7,15 @@ import (
 	"github.com/devituz/lagodev/seeder"
 )
 
-func init() {
-	seeder.Register(&{{ .Name }}{})
-}
+func init() { seeder.Register(&{{ .Name }}{}) }
 
-// {{ .Name }} populates the database with sample data.
 type {{ .Name }} struct{}
 
-// Name uniquely identifies this seeder.
 func ({{ .Name }}) Name() string { return "{{ .Name }}" }
 
-// Dependencies declares seeders that must run before this one.
-func ({{ .Name }}) Dependencies() []string { return nil }
-
-// Run executes the seeder.
 func ({{ .Name }}) Run(ctx context.Context, conn *database.Connection) error {
-	// TODO: write seeder logic here. Use factory.New() or raw orm.Save().
-	_ = ctx
-	_ = conn
+	// Write INSERT statements here, or call a factory:
+	//   _, err := factories.UserFactory(conn).Count(10).Create(ctx)
+	//   return err
 	return nil
 }

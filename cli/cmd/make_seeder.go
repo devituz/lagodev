@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/devituz/lagodev/internal/inflect"
@@ -50,5 +52,24 @@ func generateSeederInDir(cmd *cobra.Command, _ *Env, dir, name string, force boo
 		return err
 	}
 	printCreated(cmd, path)
+
+	// First-run convenience: if there is no DatabaseSeeder yet, scaffold one
+	// so the project has an orchestrator. We don't try to wire the new
+	// seeder into its Call() list automatically — auto-editing user code is
+	// fragile, so we just print a hint.
+	if name != "DatabaseSeeder" {
+		dbPath := filepath.Join(dir, "database_seeder.go")
+		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+			dbBody, err := renderStub("database_seeder", map[string]any{"Package": pkg})
+			if err != nil {
+				return err
+			}
+			if err := writeFile(dbPath, dbBody, false); err != nil {
+				return err
+			}
+			printCreated(cmd, dbPath)
+		}
+		cmd.Println(color.YellowString("hint:"), "add &"+name+"{} to DatabaseSeeder's Call() list in "+dbPath)
+	}
 	return nil
 }

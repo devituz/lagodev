@@ -18,10 +18,11 @@ import (
 	"github.com/devituz/lagodev/seeder"
 )
 
-// NewDBSeed returns `db:seed [SeederName...]`. With no args, all registered
-// seeders run in dependency order. Named seeders (positional args, or
-// --class for Laravel parity) restrict the run; their dependencies still
-// run first.
+// NewDBSeed returns `db:seed [SeederName...]`. The default behavior mirrors
+// Laravel: if a DatabaseSeeder is registered, only it runs (it orchestrates
+// the rest via seeder.Call). Otherwise every registered seeder runs in
+// dependency order. Positional args (or --class) override this and run
+// specific seeders instead.
 func NewDBSeed(env *Env) *cobra.Command {
 	var (
 		transactional bool
@@ -40,6 +41,13 @@ func NewDBSeed(env *Env) *cobra.Command {
 			only := append([]string(nil), args...)
 			if class != "" {
 				only = append(only, class)
+			}
+			// Laravel parity: with no explicit target, prefer DatabaseSeeder
+			// if the project has one. It is responsible for calling the rest.
+			if len(only) == 0 {
+				if _, ok := env.Seeders.Get("DatabaseSeeder"); ok {
+					only = []string{"DatabaseSeeder"}
+				}
 			}
 			runner := seeder.NewRunner(conn, env.Seeders, seeder.Options{
 				Transactional: transactional,
