@@ -15,7 +15,6 @@ func init() {
 				{{ .MigrationCall }}
 {{- end }}
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {
