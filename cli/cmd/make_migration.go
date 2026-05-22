@@ -76,7 +76,8 @@ func generateMigrationWithFields(cmd *cobra.Command, _ *Env, dir, name, table st
 // "create_users_table"     -> "users"
 // "add_email_to_users"     -> "users"
 // "drop_old_jobs_table"    -> "old_jobs"
-// "modify_orders"          -> ""
+// "modify_orders"          -> "orders"   (last token, pluralized)
+// "shohruh"                -> "shohruhs" (pluralized)
 func inferTable(name string) string {
 	switch {
 	case strings.HasPrefix(name, "create_") && strings.HasSuffix(name, "_table"):
@@ -90,5 +91,13 @@ func inferTable(name string) string {
 	if idx := strings.LastIndex(name, "_from_"); idx >= 0 {
 		return name[idx+len("_from_"):]
 	}
-	return ""
+	// Fallback: treat the last underscore-separated token as the entity name
+	// and pluralize it. This lets `make:migration shohruh` produce table
+	// `shohruhs` without forcing the user to spell out --table.
+	parts := strings.Split(name, "_")
+	last := parts[len(parts)-1]
+	if last == "" {
+		return ""
+	}
+	return inflect.Pluralize(last)
 }
