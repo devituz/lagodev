@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -30,6 +31,11 @@ func NewMakeMigration(env *Env) *cobra.Command {
 			inferredTable := table
 			if inferredTable == "" {
 				inferredTable = inferTable(name)
+			}
+			if inferredTable == "" {
+				return fmt.Errorf("cannot infer table name from %q — pass --table=<name> "+
+					"(or rename to create_<name>_table / drop_<name>_table / "+
+					"add_<col>_to_<name> / remove_<col>_from_<name>)", args[0])
 			}
 			parsed, err := ParseFields(fields)
 			if err != nil {
