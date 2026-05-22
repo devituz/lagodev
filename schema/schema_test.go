@@ -27,7 +27,6 @@ func usersBlueprint() *schema.Definition {
 		t.Integer("age").Default(18)
 		t.JSON("meta").Nullable()
 		t.Timestamps()
-		t.SoftDeletes()
 	})
 }
 
@@ -47,7 +46,6 @@ func TestCreateUsersTable_SQLite(t *testing.T) {
 	assert.Contains(t, create, `"age" INTEGER NOT NULL DEFAULT 18`)
 	assert.Contains(t, create, `"meta" TEXT NULL`)
 	assert.Contains(t, create, `"created_at" DATETIME NULL`)
-	assert.Contains(t, create, `"deleted_at" DATETIME NULL`)
 }
 
 func TestCreateUsersTable_Postgres(t *testing.T) {

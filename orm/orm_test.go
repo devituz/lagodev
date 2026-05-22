@@ -2,7 +2,6 @@ package orm_test
 
 import (
 	"context"
-	"database/sql"
 	"testing"
 	"time"
 
@@ -47,7 +46,6 @@ func init() {
 				t.String("email").Unique()
 				t.Integer("age").Default(0)
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {
@@ -61,7 +59,6 @@ func init() {
 				t.ForeignId("user_id").Constrained("users").OnDelete("cascade")
 				t.String("title")
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {
@@ -112,51 +109,16 @@ func TestFind_NotFoundReturnsSentinel(t *testing.T) {
 	assert.ErrorIs(t, err, orm.ErrNotFound)
 }
 
-func TestSoftDelete_HidesRowFromDefaultScope(t *testing.T) {
+func TestDelete_RemovesRow(t *testing.T) {
 	conn, cleanup := setup(t)
 	defer cleanup()
 	ctx := context.Background()
 
-	u := &User{Name: "Soft", Email: "soft@example.com"}
+	u := &User{Name: "Gone", Email: "gone@example.com"}
 	require.NoError(t, orm.Save(ctx, conn, u))
 	require.NoError(t, orm.Delete(ctx, conn, u))
 
-	// Default scope hides deleted rows.
 	_, err := orm.Query[User](conn).Find(ctx, u.ID)
-	assert.ErrorIs(t, err, orm.ErrNotFound)
-
-	// WithTrashed surfaces it.
-	found, err := orm.Query[User](conn).WithTrashed().Find(ctx, u.ID)
-	require.NoError(t, err)
-	assert.Equal(t, u.ID, found.ID)
-	assert.True(t, found.DeletedAt.Valid)
-}
-
-func TestRestore_RevertsSoftDelete(t *testing.T) {
-	conn, cleanup := setup(t)
-	defer cleanup()
-	ctx := context.Background()
-
-	u := &User{Name: "Restore", Email: "r@example.com"}
-	require.NoError(t, orm.Save(ctx, conn, u))
-	require.NoError(t, orm.Delete(ctx, conn, u))
-	require.NoError(t, orm.Restore(ctx, conn, u))
-
-	found, err := orm.Query[User](conn).Find(ctx, u.ID)
-	require.NoError(t, err)
-	assert.Equal(t, sql.NullTime{}, found.DeletedAt)
-}
-
-func TestForceDelete_BypassesSoftDelete(t *testing.T) {
-	conn, cleanup := setup(t)
-	defer cleanup()
-	ctx := context.Background()
-
-	u := &User{Name: "Force", Email: "f@example.com"}
-	require.NoError(t, orm.Save(ctx, conn, u))
-	require.NoError(t, orm.ForceDelete(ctx, conn, u))
-
-	_, err := orm.Query[User](conn).WithTrashed().Find(ctx, u.ID)
 	assert.ErrorIs(t, err, orm.ErrNotFound)
 }
 

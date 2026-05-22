@@ -2,8 +2,8 @@
 // cache. Models are parsed once on first use; subsequent accesses are O(1).
 //
 // It is the single source of truth for: column name resolution, primary-key
-// discovery, soft-delete column detection, fillable/hidden lists, cast tags,
-// and embedded base-model handling.
+// discovery, fillable/hidden lists, cast tags, and embedded base-model
+// handling.
 package reflectutil
 
 import (
@@ -30,10 +30,9 @@ type Field struct {
 	IsPrimary bool
 	// IsAutoIncrement marks an integer primary key as auto-increment.
 	IsAutoIncrement bool
-	// IsCreatedAt / IsUpdatedAt / IsDeletedAt mark timestamp columns.
+	// IsCreatedAt / IsUpdatedAt mark timestamp columns.
 	IsCreatedAt bool
 	IsUpdatedAt bool
-	IsDeletedAt bool
 	// IsZeroOnInsert means "send NULL/skip when zero on insert".
 	IsZeroOnInsert bool
 	// Hidden columns are never serialized via ToMap.
@@ -57,16 +56,14 @@ type Field struct {
 
 // Schema describes a parsed model type.
 type Schema struct {
-	Type        reflect.Type
-	Table       string
-	Fields      []*Field
-	byName      map[string]*Field
-	byColumn    map[string]*Field
-	PrimaryKey  *Field
-	CreatedAt   *Field
-	UpdatedAt   *Field
-	DeletedAt   *Field
-	SoftDeletes bool
+	Type       reflect.Type
+	Table      string
+	Fields     []*Field
+	byName     map[string]*Field
+	byColumn   map[string]*Field
+	PrimaryKey *Field
+	CreatedAt  *Field
+	UpdatedAt  *Field
 }
 
 // FieldByName returns the Field with matching Go name, or nil.
@@ -102,9 +99,6 @@ func (s *Schema) InsertableColumns(v reflect.Value) ([]string, []any) {
 		}
 		fv := v.FieldByIndex(f.Index)
 		if f.IsAutoIncrement && fv.IsZero() {
-			continue
-		}
-		if f.IsDeletedAt {
 			continue
 		}
 		cols = append(cols, f.Column)
@@ -162,10 +156,6 @@ func parseType(t reflect.Type) *Schema {
 		}
 		if f.IsUpdatedAt {
 			s.UpdatedAt = f
-		}
-		if f.IsDeletedAt {
-			s.DeletedAt = f
-			s.SoftDeletes = true
 		}
 	}
 	return s
@@ -226,9 +216,6 @@ func buildField(sf reflect.StructField, idx []int) *Field {
 		if sf.Type == reflect.TypeOf(time.Time{}) {
 			f.IsUpdatedAt = true
 		}
-	case "DeletedAt":
-		f.IsDeletedAt = true
-		f.Nullable = true
 	}
 
 	// Detect relation-shaped fields (slice/pointer to struct, non-time).

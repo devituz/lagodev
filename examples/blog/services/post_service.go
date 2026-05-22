@@ -69,7 +69,7 @@ func (s *PostService) IncrementViews(ctx context.Context, id uint64) error {
 func (s *PostService) Pin(ctx context.Context, p *models.Post)   error { p.Pinned = true; return orm.Save(ctx, s.Conn, p) }
 func (s *PostService) Unpin(ctx context.Context, p *models.Post) error { p.Pinned = false; return orm.Save(ctx, s.Conn, p) }
 
-// Delete soft-deletes the post (deleted_at is set).
+// Delete removes the post from the database.
 func (s *PostService) Delete(ctx context.Context, p *models.Post) error {
 	return orm.Delete(ctx, s.Conn, p)
 }

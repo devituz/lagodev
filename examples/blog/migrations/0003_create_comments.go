@@ -14,7 +14,6 @@ func init() {
 				t.ForeignId("user_id").Constrained("users").OnDelete("cascade")
 				t.Text("body")
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {

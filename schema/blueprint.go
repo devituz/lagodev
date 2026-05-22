@@ -187,12 +187,6 @@ func (b *Blueprint) TimestampsTz() {
 	b.addCol(&Column{Name: "updated_at", Kind: KindTimestampTZ, NullableV: true})
 }
 
-// SoftDeletes adds a nullable deleted_at column conventionally used by the
-// ORM's soft-delete behavior.
-func (b *Blueprint) SoftDeletes() *Column {
-	return b.addCol(&Column{Name: "deleted_at", Kind: KindTimestamp, NullableV: true})
-}
-
 // ---------------------- Enum / Set ----------------------
 
 func (b *Blueprint) Enum(name string, allowed ...string) *Column {

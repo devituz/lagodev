@@ -6,7 +6,7 @@ package models
 import "github.com/devituz/lagodev/orm"
 
 // Post is a published blog entry. It embeds orm.Model to inherit the
-// canonical ID / CreatedAt / UpdatedAt / DeletedAt columns.
+// canonical ID / CreatedAt / UpdatedAt columns.
 type Post struct {
 	orm.Model
 

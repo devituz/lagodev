@@ -2,7 +2,7 @@
 //
 // It wires up:
 //
-//   - 3 models (User, Post, Comment) with foreign keys + soft deletes
+//   - 3 models (User, Post, Comment) with foreign keys
 //   - 3 migrations (with up + down)
 //   - 3 factories powered by faker
 //   - 3 seeders with explicit dependencies and a topologically-sorted runner

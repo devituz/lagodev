@@ -74,19 +74,9 @@ func (s *{{ .Name }}) Update(ctx context.Context, m *{{ .ModelRef }}) error {
 	return orm.Save(ctx, s.Conn, m)
 }
 
-// Delete soft-deletes the record. Use ForceDelete for a hard delete.
+// Delete removes the record from the database.
 func (s *{{ .Name }}) Delete(ctx context.Context, m *{{ .ModelRef }}) error {
 	return orm.Delete(ctx, s.Conn, m)
-}
-
-// ForceDelete bypasses soft-delete and removes the row from the database.
-func (s *{{ .Name }}) ForceDelete(ctx context.Context, m *{{ .ModelRef }}) error {
-	return orm.ForceDelete(ctx, s.Conn, m)
-}
-
-// Restore reverts a soft-delete. Only valid for models with SoftDeletes().
-func (s *{{ .Name }}) Restore(ctx context.Context, m *{{ .ModelRef }}) error {
-	return orm.Restore(ctx, s.Conn, m)
 }
 
 // Query exposes the underlying ORM query builder for custom filters that

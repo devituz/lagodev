@@ -35,7 +35,6 @@ func init() {
 				t.String("name")
 				t.String("email").Unique()
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {

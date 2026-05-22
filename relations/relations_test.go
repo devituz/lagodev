@@ -36,7 +36,6 @@ func init() {
 				t.ID()
 				t.String("name")
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {
@@ -50,7 +49,6 @@ func init() {
 				t.ForeignId("author_id").Constrained("authors").OnDelete("cascade")
 				t.String("title")
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {

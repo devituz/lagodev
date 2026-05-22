@@ -17,7 +17,6 @@ func init() {
 				t.Integer("views").Default(0)
 				t.Boolean("pinned").Default(false)
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {

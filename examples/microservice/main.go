@@ -34,7 +34,6 @@ func init() {
 				t.String("status").Default("pending")
 				t.Timestamp("attempted_at").Nullable()
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {

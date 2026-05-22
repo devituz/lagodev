@@ -6,13 +6,13 @@
 //   2. apply a migration via the migrator;
 //   3. seed rows through the factory;
 //   4. query the ORM with eager-loaded relations;
-//   5. perform a soft delete.
+//   5. delete a row.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"time"
 
 	"github.com/devituz/lagodev/database"
 	_ "github.com/devituz/lagodev/drivers/sqlite"
@@ -49,7 +49,6 @@ func init() {
 				t.String("name")
 				t.String("email").Unique()
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {
@@ -64,7 +63,6 @@ func init() {
 				t.String("title")
 				t.Text("body")
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {
@@ -117,16 +115,12 @@ func main() {
 	must(relations.HasManyOf(conn, first, &posts, "user_id").Load(ctx))
 	fmt.Printf("%s has %d posts\n", first.Name, len(posts))
 
-	// Soft-delete a user and confirm the default scope hides them.
+	// Delete a user and confirm the row is gone.
 	must(orm.Delete(ctx, conn, &users[1]))
-	if missing, err := orm.Query[User](conn).Find(ctx, users[1].ID); err == nil {
-		panic(fmt.Errorf("expected soft-delete to hide user, but loaded %v", missing))
+	if _, err := orm.Query[User](conn).Find(ctx, users[1].ID); !errors.Is(err, orm.ErrNotFound) {
+		panic(fmt.Errorf("expected ErrNotFound after delete, got %v", err))
 	}
-
-	// WithTrashed surfaces soft-deleted rows.
-	soft, err := orm.Query[User](conn).WithTrashed().Find(ctx, users[1].ID)
-	must(err)
-	fmt.Printf("trashed user: %s (deleted_at=%v)\n", soft.Name, soft.DeletedAt.Time.Format(time.RFC3339))
+	fmt.Printf("deleted user: %s\n", users[1].Name)
 }
 
 func must(err error) {

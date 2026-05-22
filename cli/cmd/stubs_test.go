@@ -45,7 +45,8 @@ func TestInferTable(t *testing.T) {
 		"drop_orders_table":    "orders",
 		"add_email_to_users":   "users",
 		"remove_role_from_admins": "admins",
-		"modify_things":        "",
+		"modify_things":           "thingses",
+		"shohruh":                 "shohruhs",
 	}
 	for in, want := range cases {
 		assert.Equal(t, want, inferTable(in), "in=%s", in)

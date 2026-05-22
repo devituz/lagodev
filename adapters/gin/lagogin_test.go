@@ -45,7 +45,6 @@ func newTestConn(t *testing.T) *database.Connection {
 				t.String("name")
 				t.String("email")
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {

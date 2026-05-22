@@ -68,7 +68,6 @@ func init() {
 				t.String("password_hash")
 				t.String("role").Default("user")
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {

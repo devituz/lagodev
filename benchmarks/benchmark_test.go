@@ -31,7 +31,6 @@ func init() {
 				t.String("name")
 				t.Integer("price")
 				t.Timestamps()
-				t.SoftDeletes()
 			}))
 		},
 		func(ctx *migrations.Context) error {

@@ -61,7 +61,7 @@ func (c *{{ .Name }}) Update(ctx *web.Context) (any, error) {
 	return existing, c.Service.Update(ctx.Ctx(), existing)
 }
 
-// Destroy — DELETE /{{ .Resource }}/{id} — yozuvni soft-delete qilish.
+// Destroy — DELETE /{{ .Resource }}/{id} — yozuvni o'chirish.
 // nil, nil qaytaradi → framework 204 No Content yuboradi.
 func (c *{{ .Name }}) Destroy(ctx *web.Context) (any, error) {
 	item, err := c.Service.Get(ctx.Ctx(), ctx.ParamUint("id"))

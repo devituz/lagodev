@@ -1,7 +1,7 @@
 // Package orm provides an ActiveRecord-style Model, a fluent query builder,
-// hooks, casts, soft-deletes, and relationships. Models are plain Go structs
-// that embed orm.Model (or one of the timestamp variants) and live without a
-// global router — the only required dependency is a *database.Connection.
+// hooks, casts, and relationships. Models are plain Go structs that embed
+// orm.Model (or one of the timestamp variants) and live without a global
+// router — the only required dependency is a *database.Connection.
 //
 // Example:
 //
@@ -20,21 +20,18 @@ package orm
 
 import (
 	"time"
-
-	"database/sql"
 )
 
 // Model is the base struct most models embed. It provides the standard
-// id/created_at/updated_at/deleted_at columns. Models that do not need soft
-// deletes can embed Timestamps instead.
+// id/created_at/updated_at columns.
 type Model struct {
-	ID        uint64       `column:"id" orm:"primary;autoincrement"`
-	CreatedAt time.Time    `column:"created_at"`
-	UpdatedAt time.Time    `column:"updated_at"`
-	DeletedAt sql.NullTime `column:"deleted_at" orm:"nullable"`
+	ID        uint64    `column:"id" orm:"primary;autoincrement"`
+	CreatedAt time.Time `column:"created_at"`
+	UpdatedAt time.Time `column:"updated_at"`
 }
 
-// Timestamps is a lighter base for models that do not need soft deletes.
+// Timestamps is an alias for Model kept for compatibility with code that
+// distinguished it from a soft-delete-aware base.
 type Timestamps struct {
 	ID        uint64    `column:"id" orm:"primary;autoincrement"`
 	CreatedAt time.Time `column:"created_at"`

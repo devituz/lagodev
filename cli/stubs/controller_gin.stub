@@ -62,7 +62,7 @@ func (c *{{ .Name }}) Update(ctx *lagogin.Ctx) (any, error) {
 	return existing, c.Service.Update(ctx.Ctx(), existing)
 }
 
-// Destroy — DELETE /{{ .Resource }}/:id — yozuvni soft-delete qilish.
+// Destroy — DELETE /{{ .Resource }}/:id — yozuvni o'chirish.
 func (c *{{ .Name }}) Destroy(ctx *lagogin.Ctx) (any, error) {
 	item, err := c.Service.Get(ctx.Ctx(), ctx.ParamUint("id"))
 	if err != nil {
