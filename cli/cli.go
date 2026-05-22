@@ -188,6 +188,7 @@ Run "%s <command> --help" to see options for each command.`, a.ProjectName),
 	mount(cmd.NewMakeCRUD(bridge), "make:crud")
 	mount(cmd.NewMakeController(bridge), "make:controller")
 	mount(cmd.NewInit(bridge), "init")
+	mount(cmd.NewNew(bridge), "new")
 
 	mount(cmd.NewMigrateUp(bridge), "migrate")
 	mount(cmd.NewMigrateRollback(bridge), "migrate:rollback")

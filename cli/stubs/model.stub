@@ -8,14 +8,17 @@ import (
 	"github.com/devituz/lagodev/orm"
 )
 
-// {{ .Name }} is a lagodev model.
+// {{ .Name }} — lagodev model. Column nomlari avtomat snake_case'ga
+// o'tkaziladi (Name → name, PasswordHash → password_hash), shuning uchun
+// `column:"..."` taglarini yozish shart emas. Maxsus tipga (json/bool/...)
+// cast kerak bo'lsa, mos field'ga `orm:"cast:json"` qo'shing.
 type {{ .Name }} struct {
 	orm.Model
 {{ range .Fields }}
-	{{ .FieldName }} {{ .GoType }} `column:"{{ .Column }}"`
+	{{ .FieldName }} {{ .GoType }}
 {{- end }}
 }
 
-// TableName overrides the conventionally inferred table name.
-// Remove this method to use the default ({{ .Table }}).
+// TableName — odatdagicha plural'lashtirilgan nom o'rniga aniq berilgan
+// jadval nomini qaytaradi. Default to'g'ri bo'lsa, bu metodni o'chiring.
 func ({{ .Name }}) TableName() string { return "{{ .Table }}" }

@@ -38,6 +38,7 @@ func NewMakeModel(env *Env) *cobra.Command {
 		all        bool
 		force      bool
 		fields     string
+		framework  string
 	)
 	c := &cobra.Command{
 		Use:   "make:model <Name>",
@@ -93,7 +94,9 @@ func NewMakeModel(env *Env) *cobra.Command {
 				}
 			}
 			if all || controller {
-				if err := generateController(cmd, env, name+"Controller", name, force); err != nil {
+				if err := generateControllerInDirFor(cmd, env,
+					"controllers", LoadProject().Paths.Models,
+					name+"Controller", name, framework, force); err != nil {
 					return err
 				}
 			}
@@ -109,6 +112,7 @@ func NewMakeModel(env *Env) *cobra.Command {
 	c.Flags().BoolVarP(&all, "all", "a", false, "create migration, factory, seeder, test and controller")
 	c.Flags().BoolVar(&force, "force", false, "overwrite existing files")
 	c.Flags().StringVar(&fields, "fields", "", "field spec, e.g. name:string,email:string:unique")
+	c.Flags().StringVar(&framework, "framework", "web", "controller flavor for -c: web (default) or gin")
 	return c
 }
 

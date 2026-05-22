@@ -9,6 +9,7 @@ go 1.25.0
 
 use (
 	.
+	./adapters/gin
 	./examples/blog
 	./examples/chi
 	./examples/echo
