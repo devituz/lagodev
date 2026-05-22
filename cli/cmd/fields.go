@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/devituz/lagodev/internal/inflect"
@@ -118,7 +119,7 @@ func (f FieldSpec) MigrationCall() string {
 		fmt.Fprintf(&sb, `t.String(%q)`, f.Column)
 	}
 	if f.Default != "" {
-		fmt.Fprintf(&sb, ".Default(%s)", f.Default)
+		fmt.Fprintf(&sb, ".Default(%s)", goDefaultLiteral(f.Default))
 	}
 	for _, m := range f.Modifiers {
 		switch m {
@@ -183,6 +184,31 @@ func (f FieldSpec) FakerCall() string {
 		return `f.Paragraph(2, 3, 5, " ")`
 	}
 	return "f.Word()"
+}
+
+// goDefaultLiteral rewrites a default()-argument so it compiles as Go.
+// SQL-style single quotes ('user') are converted to Go double quotes;
+// numeric/boolean literals pass through; anything else is emitted as a
+// double-quoted string so the migration still compiles.
+func goDefaultLiteral(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return `""`
+	}
+	if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {
+		return strconv.Quote(s[1 : len(s)-1])
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return s
+	}
+	switch s {
+	case "true", "false", "nil":
+		return s
+	}
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return s
+	}
+	return strconv.Quote(s)
 }
 
 // ParseFields parses a `--fields=name:string,email:string:unique` spec

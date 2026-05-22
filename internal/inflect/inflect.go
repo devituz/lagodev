@@ -94,13 +94,33 @@ func Camel(s string) string {
 	return strings.Join(parts, "")
 }
 
-// Pascal converts snake_case to PascalCase.
+// Pascal converts snake_case to PascalCase. If the input already looks
+// like CamelCase or PascalCase (no underscores, contains at least one
+// uppercase letter), the existing casing is preserved and only the first
+// character is upper-cased. This avoids destroying acronyms or compound
+// names like "TagService" or "HTTPRequest" when the CLI re-normalizes
+// user-supplied identifiers.
 func Pascal(s string) string {
+	if s == "" {
+		return s
+	}
+	if !strings.Contains(s, "_") && hasUpper(s) {
+		return strings.ToUpper(s[:1]) + s[1:]
+	}
 	c := Camel(s)
 	if c == "" {
 		return c
 	}
 	return strings.ToUpper(c[:1]) + c[1:]
+}
+
+func hasUpper(s string) bool {
+	for _, r := range s {
+		if unicode.IsUpper(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // Pluralize returns the (English) plural of word.

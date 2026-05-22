@@ -70,13 +70,13 @@ func scaffoldProject(cmd *cobra.Command, name, module, framework string, force b
 		{filepath.Join(root, "lago.json"), lagoJSONStub()},
 		{filepath.Join(root, "config", "app.go"), configAppStub()},
 		{filepath.Join(root, "config", "database.go"), configDatabaseStub()},
-		{filepath.Join(root, "models", ".keep"), ""},
-		{filepath.Join(root, "migrations", ".keep"), ""},
-		{filepath.Join(root, "factories", ".keep"), ""},
-		{filepath.Join(root, "seeders", ".keep"), ""},
+		{filepath.Join(root, "models", "doc.go"), pkgDocStub("models", "Application models — embed orm.Model.")},
+		{filepath.Join(root, "migrations", "doc.go"), pkgDocStub("migrations", "Schema migrations. Generated files call migrations.Register in init().")},
+		{filepath.Join(root, "factories", "doc.go"), pkgDocStub("factories", "Faker-powered model factories.")},
+		{filepath.Join(root, "seeders", "doc.go"), pkgDocStub("seeders", "Seeders register themselves in init() via seeder.Register.")},
 		{filepath.Join(root, "tests", ".keep"), ""},
-		{filepath.Join(root, "services", ".keep"), ""},
-		{filepath.Join(root, "controllers", ".keep"), ""},
+		{filepath.Join(root, "services", "doc.go"), pkgDocStub("services", "Framework-agnostic CRUD services.")},
+		{filepath.Join(root, "controllers", "doc.go"), pkgDocStub("controllers", "HTTP controllers (web or lagogin flavor).")},
 	}
 	switch framework {
 	case "gin":
@@ -147,6 +147,10 @@ node_modules/
 `
 }
 
+func pkgDocStub(pkg, description string) string {
+	return "// Package " + pkg + " — " + description + "\npackage " + pkg + "\n"
+}
+
 func lagoJSONStub() string {
 	b, _ := json.MarshalIndent(ProjectConfig{Paths: DefaultPaths()}, "", "  ")
 	return string(b) + "\n"
@@ -157,16 +161,29 @@ func mainStubWeb(module string) string {
 
 import (
 	"log"
+	"os"
 
+	lagocfg "github.com/devituz/lagodev/config"
 	"github.com/devituz/lagodev/database"
 	_ "github.com/devituz/lagodev/drivers/sqlite"
 	"github.com/devituz/lagodev/web"
 
 	"` + module + `/config"
+	_ "` + module + `/migrations" // registers schema migrations via init()
 	"` + module + `/routes"
+	_ "` + module + `/seeders" // registers seeders via init()
 )
 
+func loadEnv() {
+	_ = lagocfg.LoadEnv(".env")
+	_ = lagocfg.LoadEnv(".env.local")
+	if env := os.Getenv("APP_ENV"); env != "" {
+		_ = lagocfg.LoadEnv(".env." + env)
+	}
+}
+
 func main() {
+	loadEnv()
 	cfg := config.App()
 	conn, err := database.Global.Open("default", config.Database())
 	if err != nil {
@@ -190,9 +207,11 @@ func mainStubGin(module string) string {
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
 
+	lagocfg "github.com/devituz/lagodev/config"
 	"github.com/devituz/lagodev/database"
 	_ "github.com/devituz/lagodev/drivers/sqlite"
 	"github.com/devituz/lagodev/migrations"
@@ -200,10 +219,21 @@ import (
 	lagogin "github.com/devituz/lagodev/adapters/gin"
 
 	"` + module + `/config"
+	_ "` + module + `/migrations" // registers schema migrations via init()
 	"` + module + `/routes"
+	_ "` + module + `/seeders" // registers seeders via init()
 )
 
+func loadEnv() {
+	_ = lagocfg.LoadEnv(".env")
+	_ = lagocfg.LoadEnv(".env.local")
+	if env := os.Getenv("APP_ENV"); env != "" {
+		_ = lagocfg.LoadEnv(".env." + env)
+	}
+}
+
 func main() {
+	loadEnv()
 	cfg := config.App()
 	ctx := context.Background()
 
