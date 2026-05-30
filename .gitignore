@@ -4,6 +4,8 @@ bin/
 *.out
 coverage.out
 coverage.html
+/artisan
+/lago
 
 # Go
 *.test
