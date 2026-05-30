@@ -10,8 +10,8 @@ import (
 // Laravel uslubida ikki qiymat qaytaradi:
 //   - any   — JSON sifatida javob beriladi (nil bo'lsa, 204 No Content)
 //   - error — nil emas bo'lsa, avtomat xato javobi (orm.ErrNotFound → 404,
-//             qolganlari → 500). c.Status(N) chaqirib ham qo'shimcha
-//             holat kodini majburlash mumkin.
+//     qolganlari → 500). c.Status(N) chaqirib ham qo'shimcha
+//     holat kodini majburlash mumkin.
 type Handler func(c *Context) (any, error)
 
 // Middleware — Handler'ni boshqa Handler bilan o'rab oladigan funksiya.

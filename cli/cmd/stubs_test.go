@@ -41,9 +41,9 @@ func TestRenderStub_Migration(t *testing.T) {
 
 func TestInferTable(t *testing.T) {
 	cases := map[string]string{
-		"create_users_table":   "users",
-		"drop_orders_table":    "orders",
-		"add_email_to_users":   "users",
+		"create_users_table":      "users",
+		"drop_orders_table":       "orders",
+		"add_email_to_users":      "users",
 		"remove_role_from_admins": "admins",
 		"modify_things":           "thingses",
 		"shohruh":                 "shohruhs",

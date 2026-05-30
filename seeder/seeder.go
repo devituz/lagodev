@@ -203,8 +203,8 @@ type FuncSeeder struct {
 	Fn   func(ctx context.Context, conn *database.Connection) error
 }
 
-func (f *FuncSeeder) Name() string             { return f.N }
-func (f *FuncSeeder) Dependencies() []string   { return f.Deps }
+func (f *FuncSeeder) Name() string           { return f.N }
+func (f *FuncSeeder) Dependencies() []string { return f.Deps }
 func (f *FuncSeeder) Run(ctx context.Context, c *database.Connection) error {
 	if f.Fn == nil {
 		return errors.New("seeder: nil Run function")

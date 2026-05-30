@@ -2,11 +2,11 @@
 // Run it with `go run ./examples/basic`.
 //
 // The example is the shortest possible tour:
-//   1. open a connection;
-//   2. apply a migration via the migrator;
-//   3. seed rows through the factory;
-//   4. query the ORM with eager-loaded relations;
-//   5. delete a row.
+//  1. open a connection;
+//  2. apply a migration via the migrator;
+//  3. seed rows through the factory;
+//  4. query the ORM with eager-loaded relations;
+//  5. delete a row.
 package main
 
 import (

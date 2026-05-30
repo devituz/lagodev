@@ -66,8 +66,14 @@ func (s *PostService) IncrementViews(ctx context.Context, id uint64) error {
 }
 
 // Pin / Unpin toggle the pinned flag.
-func (s *PostService) Pin(ctx context.Context, p *models.Post)   error { p.Pinned = true; return orm.Save(ctx, s.Conn, p) }
-func (s *PostService) Unpin(ctx context.Context, p *models.Post) error { p.Pinned = false; return orm.Save(ctx, s.Conn, p) }
+func (s *PostService) Pin(ctx context.Context, p *models.Post) error {
+	p.Pinned = true
+	return orm.Save(ctx, s.Conn, p)
+}
+func (s *PostService) Unpin(ctx context.Context, p *models.Post) error {
+	p.Pinned = false
+	return orm.Save(ctx, s.Conn, p)
+}
 
 // Delete removes the post from the database.
 func (s *PostService) Delete(ctx context.Context, p *models.Post) error {

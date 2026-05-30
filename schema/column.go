@@ -42,28 +42,28 @@ const (
 // Column is the fluent builder returned by Blueprint methods. The fluent
 // methods set modifiers and return the same pointer for chaining.
 type Column struct {
-	Name          string
-	Kind          ColumnKind
-	Length        int
-	Precision     int
-	Scale         int
-	NullableV     bool
-	HasDefault    bool
-	DefaultV      any
-	IsUnique      bool
-	IsIndex       bool
-	IsPrimary     bool
-	UnsignedV     bool
-	AutoInc       bool
-	CommentV      string
-	AfterV        string
-	FirstV        bool
-	Allowed       []string // for ENUM/SET
-	Change        bool     // true when used inside Table() to alter
-	Renamed       bool
-	OldName       string   // when renaming
-	Drop          bool
-	UseCurrent    bool
+	Name       string
+	Kind       ColumnKind
+	Length     int
+	Precision  int
+	Scale      int
+	NullableV  bool
+	HasDefault bool
+	DefaultV   any
+	IsUnique   bool
+	IsIndex    bool
+	IsPrimary  bool
+	UnsignedV  bool
+	AutoInc    bool
+	CommentV   string
+	AfterV     string
+	FirstV     bool
+	Allowed    []string // for ENUM/SET
+	Change     bool     // true when used inside Table() to alter
+	Renamed    bool
+	OldName    string // when renaming
+	Drop       bool
+	UseCurrent bool
 }
 
 // Nullable marks the column NULLABLE.
@@ -103,7 +103,10 @@ func (c *Column) After(name string) *Column { c.AfterV = name; return c }
 func (c *Column) First() *Column { c.FirstV = true; return c }
 
 // Allow installs allowed values for ENUM/SET.
-func (c *Column) Allow(values ...string) *Column { c.Allowed = append(c.Allowed[:0], values...); return c }
+func (c *Column) Allow(values ...string) *Column {
+	c.Allowed = append(c.Allowed[:0], values...)
+	return c
+}
 
 // Equal performs deep equality between two columns (used by tests).
 func (c *Column) Equal(o *Column) bool {

@@ -10,17 +10,17 @@ import (
 // methods mutate the blueprint and return Column / Foreign pointers for
 // chaining (Eloquent-style).
 type Blueprint struct {
-	table       string
-	create      bool
-	temporary   bool
-	engine      string
-	charset     string
-	collation   string
-	comment     string
-	columns     []*Column
-	indexes     []*Index
-	foreigns    []*Foreign
-	commands    []*Command
+	table     string
+	create    bool
+	temporary bool
+	engine    string
+	charset   string
+	collation string
+	comment   string
+	columns   []*Column
+	indexes   []*Index
+	foreigns  []*Foreign
+	commands  []*Command
 }
 
 // NewBlueprint returns an empty blueprint targeting the given table.
@@ -109,10 +109,18 @@ func (b *Blueprint) UUID(name string) *Column {
 
 // ---------------------- Integers ----------------------
 
-func (b *Blueprint) BigInteger(name string) *Column   { return b.addCol(&Column{Name: name, Kind: KindBigInteger}) }
-func (b *Blueprint) Integer(name string) *Column      { return b.addCol(&Column{Name: name, Kind: KindInteger}) }
-func (b *Blueprint) SmallInteger(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindSmallInteger}) }
-func (b *Blueprint) TinyInteger(name string) *Column  { return b.addCol(&Column{Name: name, Kind: KindTinyInteger}) }
+func (b *Blueprint) BigInteger(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindBigInteger})
+}
+func (b *Blueprint) Integer(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindInteger})
+}
+func (b *Blueprint) SmallInteger(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindSmallInteger})
+}
+func (b *Blueprint) TinyInteger(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindTinyInteger})
+}
 
 func (b *Blueprint) UnsignedBigInteger(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindUnsignedBig, UnsignedV: true})
@@ -124,8 +132,10 @@ func (b *Blueprint) UnsignedInteger(name string) *Column {
 
 // ---------------------- Floats / Decimal ----------------------
 
-func (b *Blueprint) Float(name string) *Column  { return b.addCol(&Column{Name: name, Kind: KindFloat}) }
-func (b *Blueprint) Double(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindDouble}) }
+func (b *Blueprint) Float(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindFloat}) }
+func (b *Blueprint) Double(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindDouble})
+}
 
 func (b *Blueprint) Decimal(name string, precisionScale ...int) *Column {
 	c := &Column{Name: name, Kind: KindDecimal, Precision: 8, Scale: 2}
@@ -156,24 +166,38 @@ func (b *Blueprint) Char(name string, length ...int) *Column {
 	return b.addCol(c)
 }
 
-func (b *Blueprint) Text(name string) *Column       { return b.addCol(&Column{Name: name, Kind: KindText}) }
-func (b *Blueprint) MediumText(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindMediumText}) }
-func (b *Blueprint) LongText(name string) *Column   { return b.addCol(&Column{Name: name, Kind: KindLongText}) }
-func (b *Blueprint) Binary(name string) *Column     { return b.addCol(&Column{Name: name, Kind: KindBinary}) }
+func (b *Blueprint) Text(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindText}) }
+func (b *Blueprint) MediumText(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindMediumText})
+}
+func (b *Blueprint) LongText(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindLongText})
+}
+func (b *Blueprint) Binary(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindBinary})
+}
 
 // ---------------------- Booleans / JSON ----------------------
 
-func (b *Blueprint) Boolean(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindBoolean}) }
-func (b *Blueprint) JSON(name string) *Column    { return b.addCol(&Column{Name: name, Kind: KindJSON}) }
-func (b *Blueprint) JSONB(name string) *Column   { return b.addCol(&Column{Name: name, Kind: KindJSONB}) }
+func (b *Blueprint) Boolean(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindBoolean})
+}
+func (b *Blueprint) JSON(name string) *Column  { return b.addCol(&Column{Name: name, Kind: KindJSON}) }
+func (b *Blueprint) JSONB(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindJSONB}) }
 
 // ---------------------- Dates / times ----------------------
 
-func (b *Blueprint) Date(name string) *Column        { return b.addCol(&Column{Name: name, Kind: KindDate}) }
-func (b *Blueprint) DateTime(name string) *Column    { return b.addCol(&Column{Name: name, Kind: KindDateTime}) }
-func (b *Blueprint) Time(name string) *Column        { return b.addCol(&Column{Name: name, Kind: KindTime}) }
-func (b *Blueprint) Timestamp(name string) *Column   { return b.addCol(&Column{Name: name, Kind: KindTimestamp}) }
-func (b *Blueprint) TimestampTz(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindTimestampTZ}) }
+func (b *Blueprint) Date(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindDate}) }
+func (b *Blueprint) DateTime(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindDateTime})
+}
+func (b *Blueprint) Time(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindTime}) }
+func (b *Blueprint) Timestamp(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindTimestamp})
+}
+func (b *Blueprint) TimestampTz(name string) *Column {
+	return b.addCol(&Column{Name: name, Kind: KindTimestampTZ})
+}
 
 // Timestamps adds nullable created_at and updated_at columns.
 func (b *Blueprint) Timestamps() {

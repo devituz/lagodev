@@ -36,11 +36,11 @@ const (
 // strong random value (>=32 bytes). Issuer is optional and embedded into
 // the iss claim when non-empty.
 type Config struct {
-	Secret      string
-	Issuer      string
-	AccessTTL   time.Duration
-	RefreshTTL  time.Duration
-	BcryptCost  int
+	Secret     string
+	Issuer     string
+	AccessTTL  time.Duration
+	RefreshTTL time.Duration
+	BcryptCost int
 }
 
 // Claims is the payload carried inside every JWT issued by Manager.

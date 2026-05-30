@@ -22,13 +22,13 @@ type Index struct {
 
 // Foreign describes a foreign-key constraint.
 type Foreign struct {
-	Name             string
-	Columns          []string
-	ReferencesTable  string
-	ReferencesCols   []string
-	OnDeleteAction   string
-	OnUpdateAction   string
-	Drop             bool
+	Name            string
+	Columns         []string
+	ReferencesTable string
+	ReferencesCols  []string
+	OnDeleteAction  string
+	OnUpdateAction  string
+	Drop            bool
 }
 
 // On targets the referenced table.

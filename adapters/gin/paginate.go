@@ -15,13 +15,13 @@ type PaginatedQuery[T any] interface {
 // Page describes one paginated payload — a Laravel-style envelope so
 // clients can render pagination UI without extra round-trips.
 type Page struct {
-	Data       any   `json:"data"`
-	Total      int64 `json:"total"`
-	Page       int   `json:"page"`
-	PerPage    int   `json:"per_page"`
-	LastPage   int   `json:"last_page"`
-	From       int   `json:"from"`
-	To         int   `json:"to"`
+	Data     any   `json:"data"`
+	Total    int64 `json:"total"`
+	Page     int   `json:"page"`
+	PerPage  int   `json:"per_page"`
+	LastPage int   `json:"last_page"`
+	From     int   `json:"from"`
+	To       int   `json:"to"`
 }
 
 // Paginate runs a model-aware query through page/per_page query params and
@@ -60,7 +60,7 @@ func Paginate[T any](c *Ctx, q *ormBuilder[T]) (Page, error) {
 	}
 
 	var items []T
-	if err := q.Limit(perPage).Offset((page - 1) * perPage).Get(c.Ctx(), &items); err != nil {
+	if err := q.Limit(perPage).Offset((page-1)*perPage).Get(c.Ctx(), &items); err != nil {
 		return Page{}, err
 	}
 

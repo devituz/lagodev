@@ -21,15 +21,15 @@ type StateFn[T any] func(f *Faker, m *T)
 
 // Factory builds and persists T instances.
 type Factory[T any] struct {
-	conn       *database.Connection
-	def        DefinitionFn[T]
-	states     []StateFn[T]
-	overrides  []func(m *T)
-	count      int
-	beforeSave []func(m *T)
-	afterMake  []func(m *T)
+	conn        *database.Connection
+	def         DefinitionFn[T]
+	states      []StateFn[T]
+	overrides   []func(m *T)
+	count       int
+	beforeSave  []func(m *T)
+	afterMake   []func(m *T)
 	afterCreate []func(ctx context.Context, m *T) error
-	faker      *Faker
+	faker       *Faker
 }
 
 // New constructs a Factory using a definition function.

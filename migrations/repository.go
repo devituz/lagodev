@@ -19,8 +19,8 @@ type Record struct {
 
 // Repository persists migration history.
 type Repository struct {
-	Conn    *database.Connection
-	Table   string
+	Conn  *database.Connection
+	Table string
 }
 
 // NewRepository builds a Repository targeting the given table.

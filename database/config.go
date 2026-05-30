@@ -32,10 +32,10 @@ type Config struct {
 	ConnMaxLifetime time.Duration `json:"conn_max_lifetime,omitempty"`
 
 	// Logging.
-	LogQueries   bool          `json:"log_queries,omitempty"`
-	SlowQuery    time.Duration `json:"slow_query,omitempty"`
-	TablePrefix  string        `json:"table_prefix,omitempty"`
-	MigrationsTable string     `json:"migrations_table,omitempty"`
+	LogQueries      bool          `json:"log_queries,omitempty"`
+	SlowQuery       time.Duration `json:"slow_query,omitempty"`
+	TablePrefix     string        `json:"table_prefix,omitempty"`
+	MigrationsTable string        `json:"migrations_table,omitempty"`
 }
 
 // BuildDSN returns the DSN derived from the structured fields. Drivers may

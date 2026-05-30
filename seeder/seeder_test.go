@@ -17,8 +17,8 @@ type recorder struct {
 	log  *[]string
 }
 
-func (r *recorder) Name() string             { return r.name }
-func (r *recorder) Dependencies() []string   { return r.deps }
+func (r *recorder) Name() string           { return r.name }
+func (r *recorder) Dependencies() []string { return r.deps }
 func (r *recorder) Run(_ context.Context, _ *database.Connection) error {
 	*r.log = append(*r.log, r.name)
 	return nil

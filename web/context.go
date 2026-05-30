@@ -259,4 +259,3 @@ func (c *Context) Created(v any) any {
 	c.Status(http.StatusCreated)
 	return v
 }
-

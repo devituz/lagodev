@@ -10,12 +10,12 @@ import "github.com/devituz/lagodev/orm"
 type Post struct {
 	orm.Model
 
-	UserID  uint64 `column:"user_id" json:"user_id"`
-	Title   string `column:"title" json:"title"`
-	Slug    string `column:"slug" json:"slug"`
-	Body    string `column:"body" json:"body"`
-	Views   int    `column:"views" json:"views"`
-	Pinned  bool   `column:"pinned" json:"pinned"`
+	UserID uint64 `column:"user_id" json:"user_id"`
+	Title  string `column:"title" json:"title"`
+	Slug   string `column:"slug" json:"slug"`
+	Body   string `column:"body" json:"body"`
+	Views  int    `column:"views" json:"views"`
+	Pinned bool   `column:"pinned" json:"pinned"`
 }
 
 func (Post) TableName() string { return "posts" }

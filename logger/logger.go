@@ -60,7 +60,9 @@ func (l *Logger) SetLevel(level Level) {
 func (l *Logger) Debug(args ...any) { l.write(LevelDebug, fmt.Sprint(args...)) }
 
 // Debugf logs a formatted debug message.
-func (l *Logger) Debugf(format string, args ...any) { l.write(LevelDebug, fmt.Sprintf(format, args...)) }
+func (l *Logger) Debugf(format string, args ...any) {
+	l.write(LevelDebug, fmt.Sprintf(format, args...))
+}
 
 // Info logs at the info level.
 func (l *Logger) Info(args ...any) { l.write(LevelInfo, fmt.Sprint(args...)) }
@@ -78,7 +80,9 @@ func (l *Logger) Warnf(format string, args ...any) { l.write(LevelWarn, fmt.Spri
 func (l *Logger) Error(args ...any) { l.write(LevelError, fmt.Sprint(args...)) }
 
 // Errorf logs a formatted error message.
-func (l *Logger) Errorf(format string, args ...any) { l.write(LevelError, fmt.Sprintf(format, args...)) }
+func (l *Logger) Errorf(format string, args ...any) {
+	l.write(LevelError, fmt.Sprintf(format, args...))
+}
 
 // SQL records a query trace.
 func (l *Logger) SQL(_ context.Context, query string, args []any, took time.Duration, err error) {
