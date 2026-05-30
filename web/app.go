@@ -113,11 +113,16 @@ func (a *App) Run(addr ...string) error {
 		})
 	}
 
-	// 3. Server obyekti
+	// 3. Server obyekti — slowloris va resurs ushlab qolish hujumlaridan
+	//    himoyalanish uchun barcha timeoutlar belgilangan.
 	a.server = &http.Server{
 		Addr:              a.addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MiB
 	}
 
 	// 4. Marshrutlar jadvalini chiqaramiz (debug uchun foydali)

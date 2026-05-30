@@ -21,11 +21,16 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/devituz/lagodev/database"
 	"github.com/devituz/lagodev/orm"
 )
+
+// DefaultBodyLimit caps c.Bind() reads when no BodyLimit() middleware
+// is configured. Override per app by chaining BodyLimit(n) on the router.
+const DefaultBodyLimit int64 = 1 << 20 // 1 MiB
 
 // Context bitta HTTP so'rovni ifoda etadi. U handler'lar va middleware'lar
 // orasidan o'tadi va so'rov/javob ustida ishlash uchun helper'lar beradi.
@@ -41,6 +46,15 @@ type Context struct {
 
 	// statusWritten — Status() yoki body yozish allaqachon sodir bo'lganmi.
 	statusWritten bool
+	// bodyWritten — body allaqachon yozilganmi (JSON/String/NoContent).
+	// respond() bu flag yoqilgan bo'lsa, takroriy javob yozmaydi.
+	bodyWritten bool
+	// pendingStatus — handler Created()/Status() bilan kelajakdagi body
+	// uchun status kodini buyurtma qilgan, lekin hali WriteHeader
+	// chaqirilmagan. Bu Content-Type'ni status kodidan oldin yuborishga
+	// imkon beradi (Go ResponseWriter status yozilgach sarlavhalarni
+	// qo'shishni rad etadi).
+	pendingStatus int
 	// store — middleware'lar contextda saqlamoqchi bo'lgan qiymatlar.
 	store map[string]any
 }
@@ -107,12 +121,22 @@ func (c *Context) QueryInt(name string, fallback int) int {
 
 // Bind so'rov body'sini JSON sifatida dst'ga decode qiladi. Xato bo'lsa
 // avtomatik 400 Bad Request qaytaradi va sentinel xatoni qaytaradi.
+//
+// Body BodyLimit() middleware tomonidan cheklangan bo'lmasa, default
+// 1 MiB chegara qo'llaniladi (DoS oldini olish).
 func (c *Context) Bind(dst any) error {
 	if c.Request.Body == nil {
 		c.BadRequest("empty body")
 		return errors.New("web: empty body")
 	}
-	if err := json.NewDecoder(c.Request.Body).Decode(dst); err != nil {
+	// Apply a default body limit so handlers without explicit BodyLimit()
+	// middleware are still protected from DoS via huge payloads. If
+	// BodyLimit() is already active, its lower limit wins (MaxBytesReader
+	// nesting honours the innermost cap).
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, DefaultBodyLimit)
+	dec := json.NewDecoder(c.Request.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
 		c.BadRequest(err.Error())
 		return err
 	}
@@ -123,6 +147,21 @@ func (c *Context) Bind(dst any) error {
 // Foydalanish: if !c.MustBind(&payload) { return }
 func (c *Context) MustBind(dst any) bool {
 	return c.Bind(dst) == nil
+}
+
+// BindAndValidate so'rov body'sini Bind qiladi va keyin Validate() ishga
+// tushiradi. Validatsiya muvaffaqiyatsiz bo'lsa, qaytarilgan xato
+// *ValidationError bo'ladi va respond() uni 422 ga aylantiradi:
+//
+//	{"errors": {"field": "message"}}
+func (c *Context) BindAndValidate(dst any) error {
+	if err := c.Bind(dst); err != nil {
+		return err
+	}
+	if err := Validate(dst); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -139,20 +178,31 @@ func (c *Context) Status(code int) {
 
 // JSON v'ni JSON sifatida code statusi bilan yuboradi.
 func (c *Context) JSON(code int, v any) {
+	if c.bodyWritten {
+		return
+	}
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.Status(code)
 	_ = json.NewEncoder(c.Writer).Encode(v)
+	c.bodyWritten = true
 }
 
 // String matn javobi.
 func (c *Context) String(code int, body string) {
+	if c.bodyWritten {
+		return
+	}
 	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	c.Status(code)
 	_, _ = c.Writer.Write([]byte(body))
+	c.bodyWritten = true
 }
 
 // NoContent 204 javobi (body yo'q).
-func (c *Context) NoContent() { c.Status(http.StatusNoContent) }
+func (c *Context) NoContent() {
+	c.Status(http.StatusNoContent)
+	c.bodyWritten = true
+}
 
 // BadRequest 400 + JSON xato.
 func (c *Context) BadRequest(msg string) {
@@ -183,18 +233,43 @@ func (c *Context) Forbidden(msg string) {
 	c.JSON(http.StatusForbidden, map[string]string{"error": msg})
 }
 
-// InternalError 500 + JSON xato.
+// InternalError 500 + JSON xato. Production'da (APP_ENV=production)
+// generic "internal server error" javobi yuboriladi — raw error matnida
+// stack/DB ma'lumotlari sizib ketmasin. Boshqa muhitlarda to'liq matn
+// ko'rsatiladi (development ergonomikasi).
 func (c *Context) InternalError(err error) {
-	c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	msg := err.Error()
+	if isProduction() {
+		msg = "internal server error"
+	}
+	c.JSON(http.StatusInternalServerError, map[string]string{"error": msg})
 }
 
-// Error err nil emas bo'lsa, mos status kodi bilan JSON javob qaytaradi.
-// orm.ErrNotFound uchun 404, qolganlar uchun 500. Foydalanish:
+// UnprocessableEntity 422 + ValidationError'ning fields'ini JSON
+// sifatida yuboradi.
+func (c *Context) UnprocessableEntity(ve *ValidationError) {
+	c.JSON(http.StatusUnprocessableEntity, map[string]any{
+		"error":  ve.Message,
+		"errors": ve.Fields,
+	})
+}
+
+// Error err nil emas bo'lsa, mos status kodi bilan JSON javob qaytaradi:
+//   - *ValidationError       → 422 Unprocessable Entity
+//   - orm.ErrNotFound        → 404 Not Found
+//   - boshqa                 → 500 Internal Server Error
+//
+// Foydalanish:
 //
 //	if c.Error(err) { return }
 func (c *Context) Error(err error) bool {
 	if err == nil {
 		return false
+	}
+	var ve *ValidationError
+	if errors.As(err, &ve) {
+		c.UnprocessableEntity(ve)
+		return true
 	}
 	if errors.Is(err, orm.ErrNotFound) {
 		c.NotFound(err.Error())
@@ -202,6 +277,14 @@ func (c *Context) Error(err error) bool {
 	}
 	c.InternalError(err)
 	return true
+}
+
+func isProduction() bool {
+	switch os.Getenv("APP_ENV") {
+	case "production", "prod":
+		return true
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +317,12 @@ func (c *Context) Get(key string) (any, bool) {
 //	value != nil, status set:    faqat JSON tana yoziladi (status saqlanadi)
 //	value != nil:                200 + JSON
 func (c *Context) respond(value any, err error) {
+	// Agar handler ichida allaqachon javob yozilgan bo'lsa (masalan
+	// Bind 400 yozgan, yoki c.JSON to'g'ridan-to'g'ri chaqirilgan),
+	// takroriy yozmaslik kerak — body ikki marta yuborilmasin.
+	if c.bodyWritten {
+		return
+	}
 	if c.Error(err) {
 		return
 	}
@@ -243,19 +332,29 @@ func (c *Context) respond(value any, err error) {
 		}
 		return
 	}
-	if c.statusWritten {
-		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(c.Writer).Encode(value)
-		return
+	code := http.StatusOK
+	if c.pendingStatus != 0 {
+		code = c.pendingStatus
 	}
-	c.JSON(http.StatusOK, value)
+	c.JSON(code, value)
 }
 
 // Created — Store handler uchun qulay yordamchi. 201 statusi'ni belgilab
 // foydalanuvchi return value, nil yozsa, framework JSON'ga aylantiradi:
 //
 //	return ctx.Created(post), nil
+//
+// Eslatma: Status'ni darhol writer'ga yozmaydi — respond() body yozish
+// chog'ida 201 ni qo'llaydi, shu sababli Content-Type to'g'ri belgilanadi.
 func (c *Context) Created(v any) any {
-	c.Status(http.StatusCreated)
+	c.pendingStatus = http.StatusCreated
 	return v
+}
+
+// WithStatus — keyingi body yozilganda foydalaniladigan status kodi.
+// Status() bilan farqi: Status() darhol WriteHeader chaqiradi, bu esa
+// faqat kelajakdagi JSON/String chaqiruvi uchun rejalashtiradi.
+func (c *Context) WithStatus(code int) *Context {
+	c.pendingStatus = code
+	return c
 }

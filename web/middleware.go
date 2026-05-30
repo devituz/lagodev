@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,27 +45,91 @@ func Recovery(l *log.Logger) Middleware {
 }
 
 // CORS — sodda CORS middleware. Origin'ni allowedOrigins ro'yxati bilan
-// taqqoslaydi (yoki "*" — har qanday).
+// taqqoslaydi (yoki "*" — har qanday). Kuchaytirilgan default'lar bilan:
+//   - Faqat ruxsat etilgan origin'ga "Access-Control-Allow-Origin" sarlavhasi
+//     yuboriladi (boshqa origin'ga umuman jo'natilmaydi).
+//   - Preflight uchun Access-Control-Request-Headers aks sado beriladi.
+//   - "*" + credentials kombinatsiyasi taqiqlangan (brauzer ham qabul
+//     qilmaydi; framework bu xavfsiz emas konfiguratsiyani yubormaydi).
+//   - Preflight javoblarini brauzer 10 minut cache qiladi.
+//
+// Credentials (cookie/Authorization) ruxsat berish uchun
+// CORSConfig orqali AllowCredentials = true sozlang va wildcard
+// ishlatmang.
 func CORS(allowedOrigins ...string) Middleware {
+	return CORSWithConfig(CORSConfig{AllowedOrigins: allowedOrigins})
+}
+
+// CORSConfig kengaytirilgan CORS sozlamalari.
+type CORSConfig struct {
+	AllowedOrigins   []string
+	AllowedMethods   []string
+	AllowedHeaders   []string
+	ExposedHeaders   []string
+	AllowCredentials bool
+	MaxAgeSeconds    int
+}
+
+// CORSWithConfig — CORSConfig'dan middleware quradi.
+func CORSWithConfig(cfg CORSConfig) Middleware {
 	allowAll := false
 	allowed := map[string]struct{}{}
-	for _, o := range allowedOrigins {
+	for _, o := range cfg.AllowedOrigins {
 		if o == "*" {
 			allowAll = true
 		}
 		allowed[o] = struct{}{}
 	}
+	if allowAll && cfg.AllowCredentials {
+		panic("web: CORS wildcard origin with AllowCredentials is unsafe")
+	}
+	if len(cfg.AllowedMethods) == 0 {
+		cfg.AllowedMethods = []string{
+			http.MethodGet, http.MethodPost, http.MethodPut,
+			http.MethodPatch, http.MethodDelete, http.MethodOptions,
+		}
+	}
+	if len(cfg.AllowedHeaders) == 0 {
+		cfg.AllowedHeaders = []string{"Content-Type", "Authorization", "X-CSRF-Token", "X-Request-ID"}
+	}
+	if cfg.MaxAgeSeconds == 0 {
+		cfg.MaxAgeSeconds = 600
+	}
+	methods := strings.Join(cfg.AllowedMethods, ", ")
+	headers := strings.Join(cfg.AllowedHeaders, ", ")
+	exposed := strings.Join(cfg.ExposedHeaders, ", ")
+
 	return func(next Handler) Handler {
 		return func(c *Context) (any, error) {
 			origin := c.Request.Header.Get("Origin")
-			if allowAll {
-				c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-			} else if _, ok := allowed[origin]; ok {
-				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-				c.Writer.Header().Set("Vary", "Origin")
+			h := c.Writer.Header()
+			matched := false
+			switch {
+			case allowAll:
+				h.Set("Access-Control-Allow-Origin", "*")
+				matched = true
+			case origin != "":
+				if _, ok := allowed[origin]; ok {
+					h.Set("Access-Control-Allow-Origin", origin)
+					h.Add("Vary", "Origin")
+					matched = true
+				}
 			}
-			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if matched {
+				h.Set("Access-Control-Allow-Methods", methods)
+				if reqHeaders := c.Request.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
+					h.Set("Access-Control-Allow-Headers", reqHeaders)
+				} else {
+					h.Set("Access-Control-Allow-Headers", headers)
+				}
+				if exposed != "" {
+					h.Set("Access-Control-Expose-Headers", exposed)
+				}
+				if cfg.AllowCredentials {
+					h.Set("Access-Control-Allow-Credentials", "true")
+				}
+				h.Set("Access-Control-Max-Age", strconv.Itoa(cfg.MaxAgeSeconds))
+			}
 			if c.Request.Method == http.MethodOptions {
 				c.NoContent()
 				return nil, nil

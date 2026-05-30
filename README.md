@@ -21,6 +21,16 @@ project. Use the whole stack, or pick the parts that fit.
   return `(any, error)` and the framework turns them into JSON responses,
   including the 404 / 500 / 204 status mapping. Resource routes register
   in a single call: `app.Resource("posts", ctrl)`.
+- **Secure by default** — `web.SecurityHeaders()` (CSP / X-Frame-Options /
+  Referrer-Policy / Permissions-Policy / nosniff), `web.CSRF()` with
+  double-submit cookie + constant-time compare, `web.RateLimit()` /
+  `web.Throttle()` per IP, `web.BodyLimit()` against payload-DoS,
+  `web.RequestID()` for tracing, hardened `web.CORS()` (rejects unsafe
+  wildcard + credentials), `c.SetCookie()` with `HttpOnly`/`Secure`/
+  `SameSite=Lax` defaults. See [SECURITY.md](SECURITY.md).
+- **Validation** — `c.BindAndValidate(&dst)` with struct-tag rules
+  (`required,min=N,max=N,email,url,oneof=...,uuid,...`). Failures auto-map
+  to HTTP 422 with `{"errors": {field: msg}}`.
 - **Schema builder** — `schema.Create("users", func(t *schema.Blueprint) { … })`
   compiles to PostgreSQL, MySQL, or SQLite. Extensible via
   `database.Grammar`.
@@ -70,7 +80,7 @@ func init() {
         func(c *migrations.Context) error {
             return c.Schema(schema.Create("posts", func(t *schema.Blueprint) {
                 t.ID(); t.String("title"); t.Text("body")
-                t.Timestamps(); t.SoftDeletes()
+                t.Timestamps()
             }))
         },
         func(c *migrations.Context) error {
