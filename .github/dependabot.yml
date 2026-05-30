@@ -1,0 +1,46 @@
+version: 2
+
+updates:
+  # Core Go module
+  - package-ecosystem: gomod
+    directory: '/'
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:00'
+      timezone: Asia/Tashkent
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+    groups:
+      go-deps:
+        patterns: ['*']
+
+  # adapters/gin sub-module
+  - package-ecosystem: gomod
+    directory: '/adapters/gin'
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:00'
+      timezone: Asia/Tashkent
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps/gin)'
+      include: scope
+    groups:
+      gin-deps:
+        patterns: ['*']
+
+  # GitHub Actions themselves
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: monthly
+      day: monday
+      time: '08:00'
+      timezone: Asia/Tashkent
+    commit-message:
+      prefix: 'chore(ci)'
+      include: scope

@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs from the same PR/branch so the queue stays short.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Build (core)
+        run: go build ./...
+
+      - name: Test (core)
+        run: go test -race -count=1 -timeout 5m ./...
+
+      - name: Build (adapters/gin)
+        working-directory: adapters/gin
+        run: go build ./...
+
+      - name: Test (adapters/gin)
+        working-directory: adapters/gin
+        run: go test -race -count=1 -timeout 5m ./...
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l . 2>&1)
+          if [ -n "$out" ]; then
+            echo "::error::gofmt found unformatted files:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: go vet (core)
+        run: go vet ./...
+
+      - name: go vet (adapters/gin)
+        working-directory: adapters/gin
+        run: go vet ./...
+
+      - name: staticcheck
+        uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+          install-go: false
+
+  bench-sanity:
+    name: Benchmarks compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      # `-run=^$` skips tests; `-benchtime=1x` runs each bench exactly once.
+      # We only want to confirm benchmarks still compile and execute, not
+      # measure them — the timing matrix lives elsewhere.
+      - name: Bench dry-run
+        run: go test -run=^$ -bench=. -benchtime=1x ./benchmarks/...
