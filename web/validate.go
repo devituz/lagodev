@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"net"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -39,12 +40,17 @@ func (e *ValidationError) Error() string {
 //	required             — disallow zero values (including empty strings)
 //	min=N                — int/float ≥ N, string length ≥ N, slice len ≥ N
 //	max=N                — opposite of min
+//	gt=N                 — strictly greater than N (int/float/string-len)
+//	lt=N                 — strictly less than N
 //	email                — basic RFC-ish email shape
 //	url                  — must start with http:// or https://
 //	oneof=a b c          — value must equal one of the listed tokens
 //	alpha                — letters only
 //	alphanumeric         — letters and digits only
 //	uuid                 — 8-4-4-4-12 hex pattern
+//	numeric              — string must parse as a number (int or float)
+//	integer              — string must parse as an integer
+//	ip                   — string must be a valid IPv4 or IPv6 address
 //
 // On failure Validate returns *ValidationError; respond() maps it to a
 // 422 Unprocessable Entity with `{"errors": {...}}`.
@@ -148,8 +154,62 @@ func applyRule(rule string, v reflect.Value) string {
 		if v.Kind() == reflect.String && !uuidRE.MatchString(v.String()) {
 			return "must be a valid UUID"
 		}
+	case "numeric":
+		if v.Kind() == reflect.String {
+			if _, err := strconv.ParseFloat(v.String(), 64); err != nil {
+				return "must be a number"
+			}
+		}
+	case "integer":
+		if v.Kind() == reflect.String {
+			if _, err := strconv.ParseInt(v.String(), 10, 64); err != nil {
+				return "must be an integer"
+			}
+		}
+	case "ip":
+		if v.Kind() == reflect.String && net.ParseIP(v.String()) == nil {
+			return "must be a valid IP address"
+		}
+	case "gt":
+		n, _ := strconv.Atoi(arg)
+		if !meetsGT(v, n) {
+			return fmt.Sprintf("must be greater than %d", n)
+		}
+	case "lt":
+		n, _ := strconv.Atoi(arg)
+		if !meetsLT(v, n) {
+			return fmt.Sprintf("must be less than %d", n)
+		}
 	}
 	return ""
+}
+
+func meetsGT(v reflect.Value, n int) bool {
+	switch v.Kind() {
+	case reflect.String:
+		return len(v.String()) > n
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() > int64(n)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return v.Uint() > uint64(n)
+	case reflect.Float32, reflect.Float64:
+		return v.Float() > float64(n)
+	}
+	return true
+}
+
+func meetsLT(v reflect.Value, n int) bool {
+	switch v.Kind() {
+	case reflect.String:
+		return len(v.String()) < n
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() < int64(n)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return v.Uint() < uint64(n)
+	case reflect.Float32, reflect.Float64:
+		return v.Float() < float64(n)
+	}
+	return true
 }
 
 func isZero(v reflect.Value) bool {

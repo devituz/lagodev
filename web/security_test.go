@@ -301,6 +301,30 @@ func TestValidate_StructTags(t *testing.T) {
 	}
 }
 
+func TestValidate_ExtraRules(t *testing.T) {
+	type Form struct {
+		Score string `json:"score" validate:"numeric"`
+		Age   string `json:"age" validate:"integer"`
+		IP    string `json:"ip" validate:"ip"`
+		Name  string `json:"name" validate:"gt=2,lt=10"`
+	}
+	bad := Form{Score: "abc", Age: "12.5", IP: "999.999", Name: "x"}
+	err := Validate(bad)
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("want *ValidationError, got %v", err)
+	}
+	for _, k := range []string{"score", "age", "ip", "name"} {
+		if _, ok := ve.Fields[k]; !ok {
+			t.Fatalf("expected failure on %q in %v", k, ve.Fields)
+		}
+	}
+	good := Form{Score: "3.14", Age: "42", IP: "10.0.0.1", Name: "valid"}
+	if err := Validate(good); err != nil {
+		t.Fatalf("good payload must pass, got %v", err)
+	}
+}
+
 func TestBindAndValidate_AutoMaps422(t *testing.T) {
 	type Form struct {
 		Email string `json:"email" validate:"required,email"`
