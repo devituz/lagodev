@@ -3,6 +3,70 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.13.0 — 2026-05-30
+
+### Added
+
+- **Secure-by-default middleware** in the native `web` package:
+  - `web.SecurityHeaders()` — CSP, X-Frame-Options,
+    X-Content-Type-Options, Referrer-Policy, Permissions-Policy, optional
+    HSTS. Configurable via `SecurityHeadersConfig`.
+  - `web.CSRF()` — double-submit cookie with constant-time compare
+    (`crypto/subtle`). Skips safe methods. Configurable cookie name,
+    header name, form field, `Secure`/`SameSite`/`MaxAge`.
+  - `web.RateLimit(n, window)` and `web.Throttle(...)` — fixed-window
+    per-IP limiter with `Retry-After`. Background GC of stale buckets.
+  - `web.BodyLimit(n bytes)` — wraps `r.Body` with `http.MaxBytesReader`
+    to prevent payload-DoS.
+  - `web.RequestID()` — generates or echoes `X-Request-ID` for tracing
+    and log correlation.
+- **Native validation** (`web/validate.go`) — no Gin dependency:
+  - `web.Validate(dst)` — struct-tag rule engine.
+  - `c.BindAndValidate(&dst)` — wires `Bind` + `Validate` + auto-422
+    response with `{"error": "validation failed", "errors": {...}}`.
+  - Rules: `required`, `min=N`, `max=N`, `gt=N`, `lt=N`, `email`, `url`,
+    `oneof=a b c`, `alpha`, `alphanumeric`, `uuid`, `numeric`, `integer`,
+    `ip`.
+  - `c.UnprocessableEntity(*ValidationError)` helper.
+- **Cookies** (`web/cookies.go`) — `c.SetCookie`, `c.Cookie`,
+  `c.ClearCookie` with `HttpOnly` / `Secure` / `SameSite=Lax` defaults.
+  Opt-outs via `CookieInsecure()`, `CookieReadable()`, `CookieSameSite()`,
+  `CookieMaxAge()`, `CookiePath()`, `CookieDomain()`, `CookieExpires()`.
+- **Hardened CORS** — `web.CORSWithConfig(CORSConfig{...})` supports
+  `AllowCredentials`, `AllowedMethods`, `AllowedHeaders`, `ExposedHeaders`,
+  `MaxAgeSeconds`. Refuses to start with wildcard origin +
+  `AllowCredentials: true` (panics at init).
+- **`examples/secure`** — runnable demo of the full stack
+  (`SecurityHeaders` + `BodyLimit` + `RateLimit` + `CORS` + validation).
+- **`SECURITY.md`** — defenses catalogued by layer, recommended
+  middleware stack, vulnerability-reporting policy.
+
+### Changed
+
+- `web.App.Run()` now sets `ReadTimeout` (30s), `WriteTimeout` (30s),
+  `IdleTimeout` (120s), and `MaxHeaderBytes` (1 MiB) — not just
+  `ReadHeaderTimeout`. Protects against slow-write / resource-hold
+  attacks.
+- `c.Bind()` always applies `http.MaxBytesReader` with `DefaultBodyLimit`
+  (1 MiB) when no `BodyLimit` middleware is active, and decodes with
+  `DisallowUnknownFields()` to block mass-assignment surprises.
+- `c.InternalError(err)` respects `APP_ENV=production` and replaces the
+  raw error message with a generic `"internal server error"`. Dev mode
+  unchanged.
+- `c.Error(err)` recognises `*ValidationError` and maps it to HTTP 422.
+
+### Fixed
+
+- Double-body write: `c.Bind()` wrote a 400 then `respond()` wrote a
+  second 500 over it because there was no body-written tracking. New
+  `bodyWritten` flag on `Context` short-circuits both paths.
+- `c.Created()` flushed `WriteHeader(201)` eagerly, which made
+  `Content-Type` unsettable; 201 responses landed as `text/plain`.
+  Replaced with `pendingStatus` that defers `WriteHeader` until the body
+  is written by `JSON/String/respond`.
+- README quick tour referenced the removed `t.SoftDeletes()` schema
+  builder.
+
 ## v0.10.0 — 2026-05-22
 
 ### Added
