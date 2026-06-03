@@ -3,6 +3,80 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.15.0 — 2026-06-03
+
+Wave 2 of Laravel-equivalent infrastructure. Five new core packages
+plus an optional S3/MinIO driver (separate module).
+
+### Added
+
+- **`filesystem` package** — `Disk` abstraction + `Local` driver.
+  - `Disk` interface: `Put`, `PutStream`, `Get`, `Reader`, `Exists`,
+    `Delete`, `Copy`, `Move`, `Files`, `Stat`.
+  - `NewLocal(root)` writes atomically (temp + rename), creates
+    intermediate directories, and rejects any `..` segment up-front so
+    `../etc/passwd` returns `ErrPathTraversal` instead of being silently
+    rewritten.
+- **`filesystem/s3` package** (separate Go module — opt-in) — S3-
+  compatible driver works with **AWS S3, MinIO**, DigitalOcean Spaces,
+  Cloudflare R2, Wasabi, Backblaze B2, Ceph RGW. Same `Disk` interface,
+  so call sites do not change between Local and S3.
+  - `s3.New(s3.Config{Endpoint, AccessKey, SecretKey, Bucket, Region,
+    UseSSL, Prefix})` — MinIO: `UseSSL: false` and `Endpoint:
+    "minio.local:9000"`.
+  - Install: `go get github.com/devituz/lagodev/filesystem/s3@latest`.
+  - Integration tests run only when `S3_ENDPOINT` is set so CI stays
+    hermetic.
+- **`process` package** — `os/exec` wrapper.
+  - `Command(name, args...).Dir().Env().Timeout().Stdin().Run(ctx)`.
+  - `Result{ExitCode, Stdout, Stderr, Duration}`; `ErrTimeout` returned
+    when wall-clock cap or context deadline is hit. Non-zero exits
+    surface via `*ExitError` (works with `errors.As`).
+  - No shell invocation — argv is passed verbatim, killing the obvious
+    "shell injection from interpolated string" class of bug.
+- **`authz` package** — `Gate[U]` + `Policy[R]` authorisation.
+  - `Define[U, R](g, ability, fn)` registers a typed closure.
+  - `Policy[R](g, policyStruct)` routes ability names to methods on
+    a struct (case-insensitive). Methods may return `bool` or
+    `(bool, error)`.
+  - `Before[U](g, fn)` short-circuits to allow when, e.g., the user is
+    a superadmin.
+  - `Allows`, `Denies`, `Authorize` (returns `ErrDenied`), `Check`
+    (returns a renderable `Decision`).
+- **`carbon` package** — ergonomic `time.Time` helper.
+  - `Now`, `Parse` (tries RFC3339, SQL datetime, ISO date, …),
+    `MustParse`.
+  - Add* / Sub* helpers (`AddDays`, `AddMonths`, …) and boundaries
+    (`StartOfDay`, `EndOfMonth`, `EndOfYear`).
+  - `DiffForHumans(other)` renders "5 minutes ago", "2 weeks from now",
+    pluralised correctly.
+- **`session` package** — cookie-backed sessions with a pluggable
+  store.
+  - `MemoryStore` ships in-box (sync.RWMutex, lazy expiry, background
+    sweeper). Replace with Redis/DB by implementing the `Store`
+    interface.
+  - `Session.Put`, `Get`, `GetString`, `Forget`, `Flush`, `Regenerate`
+    (mitigates session fixation), `Destroy`, `Save`.
+  - **`Manager.Middleware()` returns a framework-agnostic
+    `func(http.Handler) http.Handler`** so the same middleware drops
+    into Gin, Fiber, Chi, Echo, or plain `net/http` — not tied to
+    lagodev's `web` package.
+  - `session.FromRequest(r)` / `FromContext(ctx)` for handler access.
+  - `Options.Insecure` (inverted default) — cookies are Secure +
+    HttpOnly + SameSite=Lax out of the box.
+
+### Tests
+
+- 60+ new tests across the five core packages plus the s3 module
+  (unit + skipped-by-default integration). `go test ./...` and
+  `go vet ./...` clean.
+
+### Notes
+
+- Main module took **no new external dependencies**. The S3 driver
+  brings in `github.com/minio/minio-go/v7` but lives in its own
+  module so the core stays minimal.
+
 ## v0.14.0 — 2026-05-30
 
 First wave of Laravel-equivalent infrastructure packages. None of these

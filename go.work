@@ -10,6 +10,7 @@ go 1.25.0
 use (
 	.
 	./adapters/gin
+	./filesystem/s3
 	./examples/blog
 	./examples/chi
 	./examples/echo
