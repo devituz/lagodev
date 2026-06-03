@@ -3,6 +3,54 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.14.0 — 2026-05-30
+
+First wave of Laravel-equivalent infrastructure packages. None of these
+required new external dependencies.
+
+### Added
+
+- **`crypt` package** — symmetric encryption + signing.
+  - `crypt.GenerateKey()` / `GenerateKeyString()` — 32-byte AES-256 keys
+    (the second returns the `base64:` form used in `APP_KEY`).
+  - `crypt.Encrypt` / `Decrypt` — authenticated AES-256-GCM with a
+    fresh random nonce per call; tampering or wrong-key attempts return
+    `ErrCiphertextMalformed`.
+  - `crypt.Sign` / `Verify` — HMAC-SHA256 with constant-time compare for
+    stateless tokens and signed URLs.
+- **`cache` package** — `Store` interface + in-memory driver.
+  - `cache.NewMemory()` — sync-safe map with lazy expiry plus a
+    background sweeper. `Put` stores a copy so callers cannot mutate
+    cached values.
+  - Helpers: `Remember(ctx, store, key, ttl, fn)` (cache-aside pattern)
+    and `Pull` (read-and-remove).
+- **`events` package** — type-safe in-process event dispatcher.
+  - `events.Listen[E](d, fn)` registers a typed listener.
+  - `events.Dispatcher.Dispatch(ctx, event)` fans out synchronously,
+    joining listener errors via `errors.Join`. Optional
+    `StopOnError(true)` short-circuits on the first failure.
+  - `HasListeners[E]` / `Forget[E]` for introspection and cleanup.
+- **`httpclient` package** — fluent HTTP client.
+  - Chainable builder: `BaseURL`, `Header`, `Headers`, `BearerToken`,
+    `BasicAuth`, `Query`, `Timeout`, `Retry`, `Backoff`, `Transport`.
+  - Methods: `Get`, `Delete`, `PostJSON`, `PutJSON`, `PatchJSON`.
+  - Automatic retry with exponential backoff on transport errors,
+    `429`, and 5xx responses.
+  - `Response` exposes `Status` / `OK` / `Header` / `Body` / `String` /
+    `JSON(dst)`; body is fully read and the underlying `*http.Response`
+    is closed before the helper returns.
+- **`lago key:generate`** Artisan command (and `artisan key:generate`).
+  - Generates a fresh `base64:<32-byte>` key and writes it to `APP_KEY`
+    in `.env` while preserving other lines.
+  - Flags: `--env <path>`, `--force`, `--show`, `--print-only`.
+  - Refuses to overwrite a non-empty `APP_KEY` unless `--force` is
+    passed.
+
+### Tests
+
+- 31 new tests across `crypt`, `cache`, `events`, `httpclient`, and the
+  `key:generate` command. `go test ./...` and `go vet ./...` clean.
+
 ## v0.13.0 — 2026-05-30
 
 ### Added
