@@ -3,6 +3,65 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.16.0 — 2026-06-03
+
+Wave 3 of Laravel-equivalent infrastructure. Five new core packages
+covering email, background jobs, scheduling, internationalisation, and
+multi-channel notifications. Main module took no new external deps.
+
+### Added
+
+- **`mail` package** — Laravel-style Mailer.
+  - `NewMessage()` fluent Builder: `From/To/Cc/Bcc/ReplyTo/Subject/
+    Text/HTML/Header/Attach`.
+  - `SMTPMailer` talks net/smtp (STARTTLS handled when the server
+    offers it; honours `ctx` cancellation).
+  - `LogMailer` captures sent messages in memory — drop into tests
+    and dev to skip real delivery.
+  - Encode produces RFC 5322 output: multipart/alternative (text+html),
+    multipart/mixed (attachments), base64-wrapped attachments, MIME
+    `Q`-encoded Subject for non-ASCII, quoted-printable bodies.
+- **`queue` package** — typed job queue.
+  - `Job{ID, Name, Payload, Attempts, AvailableAt}` wire format.
+  - `Queue` interface (`Push`/`Pop`/`Ack`/`Nack`/`Len`).
+  - `MemoryQueue` ships in-box (FIFO with delayed delivery,
+    at-least-once via Ack/Nack, sync.Mutex-backed).
+  - `Dispatch[T]` / `DispatchAfter[T]` JSON-encode a typed payload
+    and push it with the job name derived from the Go type.
+  - `Worker` consumes jobs, dispatches to handlers registered via
+    `Handle[T]`, with configurable `MaxRetry`, exponential `Backoff`,
+    and `Poll` interval. Jobs without a handler are dropped (Acked).
+- **`scheduling` package** — wall-clock task scheduler.
+  - Schedules: `Every(d)`, `EveryMinute`, `EveryFiveMinutes`,
+    `Hourly`, `Daily`, `DailyAt("HH:MM")`, `Weekly`, `Monthly`.
+  - `Runner` ticks once per second by default; overlapping runs of
+    the same task are prevented automatically.
+  - `Tasks()` returns a snapshot for status pages / management
+    endpoints.
+- **`i18n` package** — Laravel `Lang::get` parity.
+  - `Load(dir, defaultLocale)` reads `*.json` files (basename = locale).
+    `LoadFS(fsys, …)` is the embedded-FS variant.
+  - Flat keys plus nested-JSON flattening (`{"auth":{"failed":"…"}}`
+    becomes `auth.failed`).
+  - `:placeholder` substitution and `:count`-aware `Choice` for
+    plural forms (`zero` / `one` / `other`).
+  - Missing-key fallback to a configurable locale; ultimate fallback
+    echoes the key for easy debugging.
+- **`notifications` package** — multi-channel dispatch.
+  - `Notification` describes channels + payload; `Notifiable` knows
+    its per-channel routing; `Channel` is the transport interface.
+  - `MailChannel` adapts `mail.Mailer` so any notification
+    implementing `ToMail(recipient) mail.Message` delivers through
+    email.
+  - `Manager.Send` collects per-channel errors via `errors.Join` —
+    one failing channel does not abort the rest. Missing channels and
+    empty routes are silently skipped.
+
+### Tests
+
+- 70+ new tests across the five packages. `go test ./...` and `go vet
+  ./...` clean across all 30 packages now in the module.
+
 ## v0.15.0 — 2026-06-03
 
 Wave 2 of Laravel-equivalent infrastructure. Five new core packages
