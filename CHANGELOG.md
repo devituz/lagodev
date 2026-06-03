@@ -3,6 +3,82 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.18.1 — 2026-06-03
+
+Re-release of v0.18.0. The `v0.18.0` tag was pushed against the wrong
+commit (it points at the docs-onboarding state, missing the four new
+packages). The tag stays in place to preserve module-proxy
+immutability; `v0.18.1` is the **first usable release of wave 5**.
+Always pin `v0.18.1` (or newer).
+
+Wave 5 of Laravel-equivalent infrastructure. Transactional email via
+HTTP APIs, Redis-backed pub/sub and queue, plus a gRPC adapter that
+mirrors the `web` package's auth/recovery/logging middleware.
+
+### Added
+
+- **`mail/mailgun` sub-package** — Mailgun v3 HTTP API mailer.
+  - `mailgun.New(mailgun.Config{Domain, APIKey, From, Region, …})`
+    returns a `mail.Mailer`. Use as a drop-in replacement for
+    `SMTPMailer` when port 25/465/587 is blocked (Heroku, App
+    Engine, Cloud Run, corporate firewalls).
+  - Streams multipart/form-data so attachments don't double-buffer
+    in memory.
+  - Honours per-message `Headers` via Mailgun's `h:`-prefix
+    convention; passes `Reply-To` correctly.
+  - `RegionUS` / `RegionEU` constants for the two Mailgun
+    endpoints.
+- **`mail/sendgrid` sub-package** — SendGrid v3 HTTP API mailer.
+  - `sendgrid.New(sendgrid.Config{APIKey, From, …})`.
+  - Builds a typed JSON payload (`personalizations`, `content`,
+    `attachments`) matching the SendGrid spec exactly.
+  - Base64-encodes attachments as the v3 API requires.
+- **`drivers/redis` module** (separate Go module — opt-in) — Redis-
+  backed implementations of `broadcasting.Broadcaster` and
+  `queue.Queue` in a single module so apps only depend on the
+  redis client once.
+  - `redis.NewBroadcaster(rdb, …)` — Redis Pub/Sub fan-out with
+    optional `WithPrefix("app-a")` namespacing and a saturation
+    metric (`Dropped()`).
+  - `redis.NewQueue(rdb, name, …)` — list-backed queue with
+    delayed delivery via a `delayed` sorted set, at-least-once
+    semantics via a `reserved` sorted set, automatic orphan
+    recovery on visibility-timeout expiry.
+  - Both ship in-box tests against `miniredis` so CI stays
+    hermetic.
+  - Install: `go get github.com/devituz/lagodev/drivers/redis@latest`.
+- **`adapters/grpc` module** (separate Go module — opt-in) — gRPC
+  server with the same Recovery + Auth + Logging middleware idea as
+  `web`.
+  - `lagogrpc.New(lagogrpc.Options{…})` returns a `Server` with a
+    `GRPC() *grpc.Server` accessor for `RegisterFooServiceServer`.
+  - `AuthFromManager(authMgr)` reuses the lagodev/auth `Manager`
+    you already configured for HTTP — the same JWT lights up gRPC
+    auth, surfacing `UserID(ctx)` / `Role(ctx)` / `Claims(ctx)` on
+    the handler context.
+  - Graceful shutdown on SIGINT/SIGTERM with
+    `WithShutdownTimeout`-style cap.
+  - Built-in unary + stream interceptors for Recovery (panic →
+    `codes.Internal`) and Logging (`method status duration` per
+    RPC).
+  - Install:
+    `go get github.com/devituz/lagodev/adapters/grpc@latest`.
+
+### Tests
+
+- 50+ new tests across the four new packages. The grpc adapter
+  uses `bufconn` so no real port is bound; the mail adapters use
+  `httptest`; the Redis driver uses miniredis. `go test ./...` and
+  `go vet ./...` clean across all 35 packages in the main module
+  plus the four adapter modules.
+
+### Notes
+
+- Main module **still added zero new external dependencies** in
+  this release. The four new opt-in adapter modules pull
+  `github.com/redis/go-redis/v9`, `google.golang.org/grpc`, and
+  their transitive deps only when imported.
+
 ## v0.17.0 — 2026-06-03
 
 Wave 4 of Laravel-equivalent infrastructure. Real-time + testing +

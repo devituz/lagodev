@@ -10,7 +10,9 @@ go 1.25.0
 use (
 	.
 	./adapters/gin
+	./adapters/grpc
 	./adapters/websocket
+	./drivers/redis
 	./filesystem/s3
 	./examples/blog
 	./examples/chi
