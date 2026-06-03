@@ -3,6 +3,63 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.17.0 — 2026-06-03
+
+Wave 4 of Laravel-equivalent infrastructure. Real-time + testing +
+durable queues.
+
+### Added
+
+- **`broadcasting` package** — pub/sub abstraction.
+  - `Broadcaster` interface (`Publish`/`Subscribe`/`Close`) so
+    Redis/NATS/Kafka drivers can plug in later without touching call
+    sites.
+  - `NewMemory(...)` in-process driver with per-subscription bounded
+    outbox and background goroutine. Bursts beyond the buffer are
+    dropped and surfaced via `Dropped()` as a saturation metric.
+- **`mock` package** — small testing helpers.
+  - `Clock` — controllable time source (`Advance`, `Set`).
+  - `Calls[T]` — generic call recorder with `Record`/`Count`/`At`/
+    `Last`/`All`/`AssertCount`/`AssertCalled`/`AssertNotCalled`.
+  - `HTTPServer` — programmable `httptest.Server` with route-by-
+    `(method, path)` registration, captured `RecordedRequest`
+    history, and `OnJSON`/`ReplyJSON` shortcuts.
+- **`queue/sqlqueue` package** — DB-backed Queue driver that survives
+  restarts and works across replicas.
+  - Uses lagodev's own `database.Connection` — works with Postgres,
+    MySQL, and SQLite out of the box (dialect-aware schema).
+  - `Setup(ctx)` creates the `jobs` table (and an index on
+    `available_at`).
+  - Reservation via `BEGIN; SELECT ... FOR UPDATE SKIP LOCKED;
+    UPDATE reserved_at = now(); COMMIT;` on Postgres/MySQL,
+    plain transactional select on SQLite.
+  - Visibility-timeout-based orphan recovery — if a worker dies
+    mid-job the row becomes eligible again automatically.
+- **`adapters/websocket` module** (separate module — opt-in).
+  - `Hub` orchestrates connections; `Connection.Join("room")` /
+    `Leave("room")` and `Hub.Broadcast(ctx, channel, payload)` model
+    Laravel Echo channels.
+  - `Hub.Handler(onMessage)` returns a stdlib `http.Handler` so the
+    adapter drops into Gin, Fiber, Chi, Echo, plain net/http, and
+    lagodev's `web` package without changes.
+  - Per-connection bounded outbox + ping keep-alive; `Dropped()`
+    counter for back-pressure visibility.
+  - Built on `github.com/coder/websocket` (formerly nhooyr) —
+    stdlib-friendly, minimal transitive deps.
+  - Install: `go get github.com/devituz/lagodev/adapters/websocket@latest`.
+
+### Tests
+
+- 40+ new tests (broadcasting, mock, sqlqueue, websocket end-to-end
+  with real client/server handshake + frame I/O).
+- `go test ./...` and `go vet ./...` clean across all 33 packages.
+
+### Notes
+
+- Main module still added zero new external dependencies in this
+  release. The WebSocket adapter brings `coder/websocket` but lives in
+  its own module.
+
 ## v0.16.0 — 2026-06-03
 
 Wave 3 of Laravel-equivalent infrastructure. Five new core packages
