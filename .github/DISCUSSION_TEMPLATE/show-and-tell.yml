@@ -1,0 +1,44 @@
+title: "[Show & Tell] "
+labels: ["show-and-tell"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Built something cool with lagodev? Share it here. Screenshots,
+        repo links, blog posts, talk recordings — all welcome. Posts
+        here are also candidates for the SHOWCASE.md list in the repo.
+
+  - type: input
+    id: project
+    attributes:
+      label: Project name
+    validations:
+      required: true
+
+  - type: input
+    id: url
+    attributes:
+      label: Link
+      description: GitHub repo, live URL, blog post, etc.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What does it do?
+      description: One paragraph elevator pitch.
+    validations:
+      required: true
+
+  - type: textarea
+    id: lagodev-bits
+    attributes:
+      label: Which parts of lagodev did you use?
+      description: e.g. web framework + ORM + filesystem/s3 + queue/sqlqueue
+      render: markdown
+
+  - type: checkboxes
+    id: showcase
+    attributes:
+      label: Showcase opt-in
+      options:
+        - label: I'd like this project considered for the SHOWCASE.md list.

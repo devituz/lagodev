@@ -1,0 +1,42 @@
+title: "[Q&A] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for usage questions — "how do I X with lagodev?".
+        For bugs use the issue tracker instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: lagodev version
+      description: Output of `go list -m github.com/devituz/lagodev`
+      placeholder: v0.18.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: A short description of the outcome you want.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried so far?
+      description: Code snippets, links to docs you consulted, error messages.
+      render: markdown
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Go version, OS, DB driver (if relevant).
+      placeholder: |
+        Go 1.25.0
+        macOS 14 / arm64
+        Postgres 16

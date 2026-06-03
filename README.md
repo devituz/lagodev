@@ -4,6 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/devituz/lagodev)](https://goreportcard.com/report/github.com/devituz/lagodev)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Discussions](https://img.shields.io/badge/Q%26A-discussions-blueviolet?logo=github)](https://github.com/devituz/lagodev/discussions)
 
 <!-- TODO: add a 10s GIF of `lago make:crud` generating a full CRUD API -->
 
@@ -275,11 +276,19 @@ func TestSomething(t *testing.T) {
 | Tooling | OpenTelemetry spans on every query, structured query logger sink |
 | Schema  | Online ALTERs, native Postgres types (cidr, tsvector, hstore)   |
 
+## Community
+
+- [💬 Discussions](https://github.com/devituz/lagodev/discussions) — Q&A, ideas, show & tell
+- [🐛 Issues](https://github.com/devituz/lagodev/issues) — bugs and feature requests
+- [📖 Wiki](https://github.com/devituz/lagodev/wiki) — long-form guides
+- [🚀 Showcase](SHOWCASE.md) — apps built with lagodev
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+
 ## Contributing
 
-Issues and pull requests welcome. Run `make check` (or `go test ./...` +
-`go vet ./...`) before opening a PR. New features should ship with a
-test and a one-paragraph update to the relevant doc.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Run `make check` (or
+`go test ./...` + `go vet ./...`) before opening a PR. New features
+should ship with a test and a one-paragraph update to the relevant doc.
 
 ## License
 
@@ -288,3 +297,5 @@ MIT — see [LICENSE](LICENSE).
 ## ⭐ Star the project
 
 If lagodev saved you time, a star helps other Go developers find it.
+
+[![Star History Chart](https://api.star-history.com/svg?repos=devituz/lagodev&type=Date)](https://star-history.com/#devituz/lagodev&Date)
