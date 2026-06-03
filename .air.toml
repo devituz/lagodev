@@ -1,0 +1,58 @@
+# .air.toml — live reload config for lagodev.
+#
+# Used by https://github.com/air-verse/air. Install once:
+#   go install github.com/air-verse/air@latest
+#
+# Then from the repo root:
+#   air
+#
+# By default this rebuilds and runs `examples/secure` (the runnable
+# demo of the secure-by-default middleware stack). For your own app,
+# copy this file to your project root and change `cmd` + `bin` to
+# point at your main package.
+
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+  # The package that gets built on every change.
+  cmd = "go build -o ./tmp/main ./examples/secure"
+  entrypoint = "tmp/main"
+
+  # Watch these extensions; everything else is ignored.
+  include_ext = ["go", "tpl", "tmpl", "html", "env"]
+  # Don't rebuild on changes to these directories.
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "bin", "node_modules", "docs"]
+  # Don't rebuild for generated files.
+  exclude_regex = ["_test\\.go", "_gen\\.go", "\\.pb\\.go"]
+  # Don't watch these specific files.
+  exclude_unchanged = true
+
+  # How long to wait after the last change before rebuilding (ms).
+  delay = 800
+  # Stop the previous run if it's still alive after this many ms.
+  kill_delay = "1s"
+  # Send SIGINT (cleanly), then SIGKILL after kill_delay.
+  send_interrupt = true
+  # Log the build error to the terminal so you can fix and save again.
+  log = "build-errors.log"
+
+[log]
+  time = true
+  # Hide the noisy "main: ..." prefix.
+  main_only = false
+
+[color]
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  # Clean tmp/ on exit so successive runs don't pile up binaries.
+  clean_on_exit = true
+
+[screen]
+  # Clear the terminal between reload cycles for a clean read.
+  clear_on_rebuild = true

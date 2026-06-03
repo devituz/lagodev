@@ -7,6 +7,10 @@ coverage.html
 /artisan
 /lago
 
+# air (live reload)
+tmp/
+build-errors.log
+
 # Go
 *.test
 vendor/

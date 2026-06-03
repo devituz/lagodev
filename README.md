@@ -1,8 +1,11 @@
 # lagodev
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/devituz/lagodev.svg)](https://pkg.go.dev/github.com/devituz/lagodev)
+[![Go Report Card](https://goreportcard.com/badge/github.com/devituz/lagodev)](https://goreportcard.com/report/github.com/devituz/lagodev)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#testing)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+<!-- TODO: add a 10s GIF of `lago make:crud` generating a full CRUD API -->
 
 **Laravel-grade developer experience for Go.** lagodev is a full backend
 toolkit — migrations, an Eloquent-style ORM, factories, an Artisan-style
@@ -12,6 +15,17 @@ project. Use the whole stack, or pick the parts that fit.
 > No router required. lagodev's `web` package is a complete Laravel-style
 > HTTP framework. Already on Gin/Fiber/Echo? The ORM works identically
 > there — see [docs/FRAMEWORK_INTEGRATION.md](docs/FRAMEWORK_INTEGRATION.md).
+
+## Why lagodev?
+
+One cohesive stack instead of gluing five libraries together — the ORM,
+migrations, factories, scheduler, queue, mailer, and HTTP framework all
+share the same DB connection, logger, and config object. The developer
+experience reads like Laravel; the ORM is generics-based, so `Query[T]`
+gives you compile-time-typed rows without code generation. The `web`
+package is secure-by-default — CSRF, security headers, body limits,
+rate-limit middleware, and validation are one line each, not a weekend
+of integration.
 
 ---
 
@@ -156,6 +170,27 @@ lago migrate:fresh --seed
 lago db:show
 ```
 
+## Live reload (Laravel-style `php artisan serve --watch`)
+
+lagodev ships a ready-to-use [`air`](https://github.com/air-verse/air)
+config at the repo root. Install once:
+
+```bash
+go install github.com/air-verse/air@latest
+```
+
+Then from any lagodev project root:
+
+```bash
+air
+```
+
+Every save under the watched directories rebuilds the binary and
+restarts the process — no manual `Ctrl+C` / `go run` cycle. The shipped
+`.air.toml` targets `examples/secure` so contributors can iterate on
+framework changes immediately; copy the file into your own project and
+adjust the `cmd` / `bin` lines to point at your `main` package.
+
 ## Scaffolded layout — Laravel-style
 
 ```
@@ -249,3 +284,7 @@ test and a one-paragraph update to the relevant doc.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## ⭐ Star the project
+
+If lagodev saved you time, a star helps other Go developers find it.
