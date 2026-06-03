@@ -1,0 +1,26 @@
+# Adds a "Sponsor" button on the repository header.
+# Documentation: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# Uncomment / fill in whichever platforms you actually have set up.
+# Empty values are silently ignored, so a half-filled file still works.
+
+# GitHub Sponsors — requires onboarding at https://github.com/sponsors
+github: [devituz]
+
+# Buy Me a Coffee
+# buy_me_a_coffee: your-username
+
+# Ko-fi
+# ko_fi: your-username
+
+# Patreon
+# patreon: your-username
+
+# Liberapay
+# liberapay: your-username
+
+# Open Collective
+# open_collective: lagodev
+
+# Custom URLs (any of: PayPal.me, your-domain.tld/donate, etc.)
+# custom: ["https://example.com/donate"]
