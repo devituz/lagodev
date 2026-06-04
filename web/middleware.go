@@ -1,7 +1,7 @@
 package web
 
 import (
-	"fmt"
+	"errors"
 	"log"
 	"net/http"
 	"runtime/debug"
@@ -12,8 +12,12 @@ import (
 	"github.com/devituz/lagodev/auth"
 )
 
-// Logger — har bir so'rov uchun method, path, status kodi va davomiyligini
-// log'ga yozadigan standart middleware. App.New() avtomat qo'shadi.
+// Logger — request access logger. Writes one line per request with
+// method, path, status, latency, client IP, response size (bytes
+// written), and (if RequestID middleware ran before it) the request
+// id. App.New() applies this automatically.
+//
+// Format: `METHOD PATH STATUS DURATION ip=IP size=BYTES req=ID`.
 func Logger(l *log.Logger) Middleware {
 	return func(next Handler) Handler {
 		return func(c *Context) (any, error) {
@@ -21,28 +25,50 @@ func Logger(l *log.Logger) Middleware {
 			lw := &loggingWriter{ResponseWriter: c.Writer, status: 200}
 			c.Writer = lw
 			value, err := next(c)
-			l.Printf("%s %s %d %s", c.Request.Method, c.Request.URL.Path, lw.status, time.Since(start).Round(time.Microsecond))
+			id, _ := c.Get("request_id")
+			reqID, _ := id.(string)
+			if reqID == "" {
+				reqID = "-"
+			}
+			l.Printf("%s %s %d %s ip=%s size=%d req=%s",
+				c.Request.Method,
+				c.Request.URL.Path,
+				lw.status,
+				time.Since(start).Round(time.Microsecond),
+				clientIP(c.Request),
+				lw.bytes,
+				reqID,
+			)
 			return value, err
 		}
 	}
 }
 
-// Recovery — panic'ni tutib, JSON 500 javobini qaytaradigan middleware.
-// Stack trace stderrga yoziladi. App.New() avtomat qo'shadi.
+// Recovery — catches handler panics, logs the recovered value + stack
+// trace to l, and returns a generic 500 JSON response. The recovered
+// value is **never** sent to the client (it would otherwise leak
+// secrets like "panic: db password: hunter2"). App.New() applies this
+// automatically.
 func Recovery(l *log.Logger) Middleware {
 	return func(next Handler) Handler {
 		return func(c *Context) (value any, err error) {
 			defer func() {
 				if rec := recover(); rec != nil {
-					l.Printf("panic: %v\n%s", rec, debug.Stack())
+					l.Printf("panic %s %s: %v\n%s",
+						c.Request.Method, c.Request.URL.Path, rec, debug.Stack())
 					value = nil
-					err = fmt.Errorf("internal server error: %v", rec)
+					err = errInternal
 				}
 			}()
 			return next(c)
 		}
 	}
 }
+
+// errInternal is the opaque error Recovery returns. respond/Error
+// surface a generic "internal server error" so the recovered value
+// never reaches the client.
+var errInternal = errors.New("internal server error")
 
 // CORS — sodda CORS middleware. Origin'ni allowedOrigins ro'yxati bilan
 // taqqoslaydi (yoki "*" — har qanday). Kuchaytirilgan default'lar bilan:
@@ -181,14 +207,21 @@ func AuthJWT(m *auth.Manager) Middleware {
 	}
 }
 
-// loggingWriter — Logger() middleware'i status kodini saqlash uchun
-// ResponseWriter'ni o'rab oladi.
+// loggingWriter wraps http.ResponseWriter so Logger() can capture the
+// final status code and the number of body bytes written.
 type loggingWriter struct {
 	http.ResponseWriter
 	status int
+	bytes  int
 }
 
 func (w *loggingWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *loggingWriter) Write(b []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(b)
+	w.bytes += n
+	return n, err
 }

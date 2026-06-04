@@ -3,6 +3,100 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.19.0 — 2026-06-04
+
+Framework polish + interactive deploy stack. Two themes:
+(1) the `web` package now ships the helpers a production app actually
+needs out of the box, and (2) `lago new` generates a fully-Dockerised,
+Kubernetes-ready project from a guided picker.
+
+### Added
+
+- **`web` streaming + helper methods**:
+  - `c.Redirect(code, url)` — 30x with `Location` header. Clamps
+    non-30x codes to 302.
+  - `c.File(path)` / `c.Attachment(path, filename)` — serves a file
+    with `inline` or `attachment` `Content-Disposition`.
+  - `c.Stream(code, contentType, r)` — writes through an `io.Reader`
+    with periodic flush via `http.Flusher`; ideal for CSV export
+    style endpoints.
+  - `c.SSE(event, data)` — Server-Sent Events frame (multi-line
+    `data:` lines spec-compliant). First call sets the SSE
+    headers; subsequent calls just append events.
+- **`web.App.Health()` + `web.App.Ready(checks…)`** — production
+  liveness / readiness endpoints. `Ready` runs every supplied
+  `HealthCheck` in parallel with a per-probe timeout (default 2s),
+  returns 200 on all-clear or 503 + the first failing check's name.
+- **`web.App.Test(req)`** — drives a request through the full
+  middleware chain + route table without binding a port. Returns
+  `*httptest.ResponseRecorder`. Eliminates the
+  `httptest.NewServer` boilerplate every handler test was carrying.
+- **`lago new` is now an interactive scaffolder**.
+  - Promptui-driven menu (Arrow keys) for:
+    - Primary database: `postgres / mysql / sqlite / none`
+    - Cache / queue: `redis / none`
+    - Object storage: `minio / none`
+  - Non-interactive mode via `--yes` + per-axis flags (`--db`,
+    `--cache`, `--storage`) — composes with the existing
+    `--framework` / `--module`.
+  - Preflight checks for `go` / `git` / `docker` / `docker-compose`
+    / `kubectl` and prints a friendly hint for any that's missing
+    (never blocks the scaffold).
+  - Each project now ships with **Dockerfile + .dockerignore +
+    docker-compose.yml + k8s/{deployment,service,configmap,secret,
+    kustomization}.yaml**, all conditional on the picks above.
+  - `.env` only contains the variables the picked services actually
+    need.
+  - `main.go` template wires `web.RequestID()`, `web.SecurityHeaders()`,
+    `app.Health()` and `app.Ready(db ping)` automatically.
+- **`lago make:scheme <Name>`** — generates a DTO under `schemes/`
+  with `validate:"…"` tags so controllers can plug it straight into
+  `c.BindAndValidate(&dst)`. Pascal-cases the struct, snake-cases
+  the file.
+- **Deploy artefacts** (all rendered via `text/template` from
+  `cli/cmd/stubs_deploy.go`):
+  - **Dockerfile**: multi-stage, statically-linked binary built on
+    `golang:1.25-alpine`, runtime on `gcr.io/distroless/static-
+    debian12:nonroot`. `-trimpath` + `-s -w`, BuildKit-cached
+    module + build caches, no shell in the final layer.
+  - **docker-compose.yml**: only the picked services appear,
+    each with its own `healthcheck`, a named bridge network, and
+    persistent volumes. `app` waits for `service_healthy` before
+    starting.
+  - **k8s manifests**: production-shaped — `runAsNonRoot`,
+    `readOnlyRootFilesystem`, `drop: ["ALL"]` caps,
+    `RollingUpdate` with `maxUnavailable: 0`, CPU/mem requests +
+    limits, `readinessProbe` on `/readyz` and `livenessProbe` on
+    `/healthz`. Includes a `kustomization.yaml` so
+    `kubectl apply -k k8s/` Just Works.
+
+### Changed
+
+- **`Logger` middleware output**. Format now: `METHOD PATH STATUS
+  DURATION ip=IP size=BYTES req=ID`. Captures response size via
+  the wrapping writer, surfaces the `RequestID` middleware's id
+  for log correlation, and includes the client IP.
+- **`Recovery` middleware no longer leaks the recovered value to
+  the client.** Previously the response carried
+  `internal server error: <recovered value>`, which could expose
+  secrets if a handler panicked with one. The client now sees a
+  generic `"internal server error"`; the recovered value goes only
+  to the configured logger alongside the method/path and stack.
+- **Startup / shutdown log lines are now English** (`listening on
+  …`, `signal received …`, `registered routes:`). Previously
+  Uzbek, which looked odd in mixed-language teams' log aggregators.
+
+### Notes
+
+- Main module added one dependency: `github.com/manifoldco/promptui`
+  for the interactive `lago new` prompts. It is only pulled in by
+  the CLI binary, not by application code that imports `web`/`orm`/
+  etc.
+- 12+ new tests across `web` (streaming helpers + Recovery
+  info-leak guard + health/ready/Test) and `cli/cmd`
+  (template-rendering matrix across infra combinations).
+- `go test ./...` and `go vet ./...` clean across all 35 packages.
+
 ## v0.18.1 — 2026-06-03
 
 Re-release of v0.18.0. The `v0.18.0` tag was pushed against the wrong

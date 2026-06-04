@@ -134,7 +134,7 @@ func (a *App) Run(addr ...string) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		a.logger.Printf("server tinglamoqda: http://localhost%s", a.addr)
+		a.logger.Printf("listening on http://localhost%s", a.addr)
 		if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
@@ -144,7 +144,7 @@ func (a *App) Run(addr ...string) error {
 	case err := <-errCh:
 		return err
 	case s := <-sig:
-		a.logger.Printf("signal qabul qilindi (%s); graceful shutdown...", s)
+		a.logger.Printf("signal received (%s); graceful shutdown…", s)
 		ctx, cancel := context.WithTimeout(context.Background(), a.timeout)
 		defer cancel()
 		if err := a.server.Shutdown(ctx); err != nil {
@@ -170,7 +170,7 @@ func (a *App) printRoutes() {
 	if len(routes) == 0 {
 		return
 	}
-	a.logger.Println("ro'yxatdan o'tgan marshrutlar:")
+	a.logger.Println("registered routes:")
 	maxMethod := 0
 	for _, r := range routes {
 		if l := len(r.Method); l > maxMethod {

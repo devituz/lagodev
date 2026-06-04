@@ -208,6 +208,7 @@ Run "%s <command> --help" to see options for each command.`, a.ProjectName),
 	mount(cmd.NewEnvInit(bridge), "env:init")
 	mount(cmd.NewKeyGenerate(bridge), "key:generate")
 	mount(cmd.NewMakeService(bridge), "make:service")
+	mount(cmd.NewMakeScheme(bridge), "make:scheme")
 
 	return root
 }
