@@ -3,6 +3,36 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.21.0 — 2026-06-24
+
+Framework feature expansion: validation, ORM soft deletes / pagination /
+upsert idioms, and atomic cache primitives. All additive and tested.
+
+### Added
+
+- **`validation` package** — dependency-free, Laravel-FormRequest-grade
+  request validation. Struct-tag driven (`validate:"required,email,max=255"`)
+  plus a `Map`/fluent `Builder` API for validating decoded JSON. Built-in
+  rules: required, email, url, min/max/len, gte/lte/gt/lt, numeric, integer,
+  alpha, alphanumeric, uuid, boolean, in/notin, regex, datetime, cross-field
+  eqfield/nefield/confirmed, and `dive` for nested structs/slices. Returns a
+  structured `ValidationErrors` with a `Response()` helper for a 422 JSON body
+  (`{"message","errors"}`).
+- **ORM soft deletes** — embed `orm.SoftDeletes` (adds `deleted_at`).
+  `orm.Delete` then soft-deletes; queries exclude trashed rows by default.
+  New: `(*Builder[T]).WithTrashed()`/`.OnlyTrashed()`, `orm.Restore`,
+  `orm.ForceDelete`, and `t.SoftDeletes()` in the schema blueprint.
+- **ORM pagination** — `(*Builder[T]).Paginate(ctx, page, perPage)` returns
+  `Paginator[T]{Data, Total, Page, PerPage, LastPage, HasMore}` (COUNT +
+  LIMIT/OFFSET, soft-delete aware); `(*Builder[T]).Chunk(ctx, size, fn)`
+  keyset-iterates large sets.
+- **ORM write idioms** — `orm.FirstOrCreate`, `orm.UpdateOrCreate`, and a
+  reusable `(*Builder[T]).Scope(fn)` for shared query constraints.
+- **Cache atomic + batch ops** — `Memory.Add` (put-if-absent lock primitive),
+  `Increment`/`Decrement` (race-safe counters), `Forever`, `Many`/`PutMany`,
+  exposed as free functions via optional interfaces so custom stores degrade
+  gracefully (`ErrUnsupported`).
+
 ## v0.20.2 — 2026-06-24
 
 ### Security / Dependencies

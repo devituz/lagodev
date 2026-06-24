@@ -33,6 +33,8 @@ type Field struct {
 	// IsCreatedAt / IsUpdatedAt mark timestamp columns.
 	IsCreatedAt bool
 	IsUpdatedAt bool
+	// IsDeletedAt marks the soft-delete timestamp column.
+	IsDeletedAt bool
 	// IsZeroOnInsert means "send NULL/skip when zero on insert".
 	IsZeroOnInsert bool
 	// Hidden columns are never serialized via ToMap.
@@ -64,7 +66,12 @@ type Schema struct {
 	PrimaryKey *Field
 	CreatedAt  *Field
 	UpdatedAt  *Field
+	DeletedAt  *Field
 }
+
+// SoftDeletes reports whether the model carries a soft-delete timestamp column
+// (a DeletedAt/deleted_at column, typically via embedding orm.SoftDeletes).
+func (s *Schema) SoftDeletes() bool { return s.DeletedAt != nil }
 
 // FieldByName returns the Field with matching Go name, or nil.
 func (s *Schema) FieldByName(name string) *Field {
@@ -188,6 +195,9 @@ func parseType(t reflect.Type) *Schema {
 		if f.IsUpdatedAt {
 			s.UpdatedAt = f
 		}
+		if f.IsDeletedAt {
+			s.DeletedAt = f
+		}
 	}
 	return s
 }
@@ -246,6 +256,11 @@ func buildField(sf reflect.StructField, idx []int) *Field {
 	case "UpdatedAt":
 		if sf.Type == reflect.TypeOf(time.Time{}) {
 			f.IsUpdatedAt = true
+		}
+	case "DeletedAt":
+		// Soft-delete column is a nullable timestamp (*time.Time).
+		if sf.Type == reflect.TypeOf(time.Time{}) || sf.Type == reflect.TypeOf((*time.Time)(nil)) {
+			f.IsDeletedAt = true
 		}
 	}
 

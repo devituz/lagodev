@@ -38,6 +38,18 @@ type Timestamps struct {
 	UpdatedAt time.Time `column:"updated_at"`
 }
 
+// SoftDeletes is a base struct that adds a nullable deleted_at column on top of
+// the standard id/created_at/updated_at columns. A model embedding it becomes
+// "soft-deletable": orm.Delete sets deleted_at instead of issuing a real
+// DELETE, and query builders exclude soft-deleted rows by default. Use
+// orm.ForceDelete for a real delete and orm.Restore to bring a row back.
+type SoftDeletes struct {
+	ID        uint64     `column:"id" orm:"primary;autoincrement"`
+	CreatedAt time.Time  `column:"created_at"`
+	UpdatedAt time.Time  `column:"updated_at"`
+	DeletedAt *time.Time `column:"deleted_at"`
+}
+
 // Tabler may be implemented on a model to override the inferred table name.
 type Tabler interface {
 	TableName() string

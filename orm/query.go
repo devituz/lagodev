@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"time"
 
 	"github.com/devituz/lagodev/casts"
 	"github.com/devituz/lagodev/database"
@@ -17,12 +18,25 @@ import (
 // ErrNotFound is returned by First/FirstOrFail when no row matches.
 var ErrNotFound = errors.New("orm: record not found")
 
+// trashedMode controls how the soft-delete scope is applied at execution time.
+type trashedMode int
+
+const (
+	// trashedDefault excludes soft-deleted rows (deleted_at IS NULL).
+	trashedDefault trashedMode = iota
+	// trashedWith includes soft-deleted rows (no scope).
+	trashedWith
+	// trashedOnly returns only soft-deleted rows (deleted_at IS NOT NULL).
+	trashedOnly
+)
+
 // Builder is a model-aware wrapper around query.Builder.
 type Builder[T any] struct {
 	conn     *database.Connection
 	executor database.Executor
 	schema   *reflectutil.Schema
 	qb       *query.Builder
+	trashed  trashedMode
 }
 
 // Query returns a fresh model builder.
@@ -76,12 +90,53 @@ func (b *Builder[T]) Limit(n int) *Builder[T] { b.qb.Limit(n); return b }
 // Offset applies an OFFSET.
 func (b *Builder[T]) Offset(n int) *Builder[T] { b.qb.Offset(n); return b }
 
+// WithTrashed includes soft-deleted rows in the results. No-op on models that
+// are not soft-deletable.
+func (b *Builder[T]) WithTrashed() *Builder[T] { b.trashed = trashedWith; return b }
+
+// OnlyTrashed restricts the results to soft-deleted rows only. No-op on models
+// that are not soft-deletable.
+func (b *Builder[T]) OnlyTrashed() *Builder[T] { b.trashed = trashedOnly; return b }
+
+// Scope applies a reusable constraint to the builder and returns it, so common
+// query fragments can be factored into a named function:
+//
+//	active := func(q *orm.Builder[User]) *orm.Builder[User] { return q.Where("active", true) }
+//	orm.Query[User](conn).Scope(active).Get(ctx, &users)
+func (b *Builder[T]) Scope(fn func(*Builder[T]) *Builder[T]) *Builder[T] {
+	if fn == nil {
+		return b
+	}
+	return fn(b)
+}
+
 // Raw query builder access.
 func (b *Builder[T]) QB() *query.Builder { return b.qb }
 
+// scopedQB returns a clone of the underlying query builder with the soft-delete
+// scope applied according to the current trashed mode. Non-soft-deletable
+// models are returned unchanged. The clone keeps the receiver reusable across
+// terminal calls.
+func (b *Builder[T]) scopedQB() *query.Builder {
+	qb := b.qb.Clone()
+	if b.schema.DeletedAt == nil {
+		return qb
+	}
+	col := b.schema.DeletedAt.Column
+	switch b.trashed {
+	case trashedDefault:
+		qb.WhereNull(col)
+	case trashedOnly:
+		qb.WhereNotNull(col)
+	case trashedWith:
+		// include all rows: no scope
+	}
+	return qb
+}
+
 // Get executes the query and populates dst (must be *[]T).
 func (b *Builder[T]) Get(ctx context.Context, dst *[]T) error {
-	rows, err := b.qb.Get(ctx)
+	rows, err := b.scopedQB().Get(ctx)
 	if err != nil {
 		return err
 	}
@@ -93,7 +148,7 @@ func (b *Builder[T]) Get(ctx context.Context, dst *[]T) error {
 // clone of the underlying builder so the receiver keeps its full clause state
 // and can still be used for Get/Count afterwards.
 func (b *Builder[T]) First(ctx context.Context) (*T, error) {
-	rows, err := b.qb.Clone().Limit(1).Get(ctx)
+	rows, err := b.scopedQB().Limit(1).Get(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +175,7 @@ func (b *Builder[T]) Find(ctx context.Context, id any) (*T, error) {
 	if b.schema.PrimaryKey == nil {
 		return nil, errors.New("orm: no primary key on model")
 	}
-	rows, err := b.qb.Clone().Where(b.schema.PrimaryKey.Column, "=", id).Limit(1).Get(ctx)
+	rows, err := b.scopedQB().Where(b.schema.PrimaryKey.Column, "=", id).Limit(1).Get(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -135,20 +190,21 @@ func (b *Builder[T]) Find(ctx context.Context, id any) (*T, error) {
 	return &out[0], nil
 }
 
-// Count rows matching the query.
+// Count rows matching the query (honoring the soft-delete scope).
 func (b *Builder[T]) Count(ctx context.Context) (int64, error) {
-	return b.qb.Count(ctx)
+	return b.scopedQB().Count(ctx)
 }
 
-// Exists reports whether any matching row exists.
+// Exists reports whether any matching row exists (honoring the soft-delete scope).
 func (b *Builder[T]) Exists(ctx context.Context) (bool, error) {
-	return b.qb.Exists(ctx)
+	return b.scopedQB().Exists(ctx)
 }
 
 // Pluck extracts a single column as []V.
 func Pluck[T any, V any](ctx context.Context, b *Builder[T], col string) ([]V, error) {
-	b.qb.Select(col)
-	rows, err := b.qb.Get(ctx)
+	qb := b.scopedQB()
+	qb.Select(col)
+	rows, err := qb.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -390,8 +446,46 @@ func Save[T any](ctx context.Context, conn *database.Connection, model *T) error
 	return dispatchHook(model, "AfterSave", hctx)
 }
 
-// Delete removes the model's row from the database.
+// Delete removes the model's row from the database. For soft-deletable models
+// (those carrying a deleted_at column) it issues an UPDATE that stamps
+// deleted_at instead of a real DELETE; use ForceDelete for an unconditional
+// removal.
 func Delete[T any](ctx context.Context, conn *database.Connection, model *T) error {
+	schema := reflectutil.Parse(model)
+	v := reflect.ValueOf(model).Elem()
+	if schema.PrimaryKey == nil {
+		return errors.New("orm: cannot delete model without a primary key")
+	}
+	hctx := &HookContext{Ctx: ctx, Conn: conn}
+	if err := dispatchHook(model, "BeforeDelete", hctx); err != nil {
+		return err
+	}
+	pkVal := v.FieldByIndex(schema.PrimaryKey.Index).Interface()
+	tableName := tableNameFor(model, schema)
+
+	if schema.DeletedAt != nil {
+		now := conn.Now()
+		if _, err := query.New(conn, tableName).
+			Where(schema.PrimaryKey.Column, "=", pkVal).
+			Update(ctx, map[string]any{schema.DeletedAt.Column: now}); err != nil {
+			return err
+		}
+		// Reflect the change back onto the in-memory model.
+		dv := v.FieldByIndex(schema.DeletedAt.Index)
+		setDeletedAt(dv, &now)
+		return dispatchHook(model, "AfterDelete", hctx)
+	}
+
+	if _, err := query.New(conn, tableName).
+		Where(schema.PrimaryKey.Column, "=", pkVal).
+		Delete(ctx); err != nil {
+		return err
+	}
+	return dispatchHook(model, "AfterDelete", hctx)
+}
+
+// ForceDelete permanently removes the model's row, bypassing soft deletes.
+func ForceDelete[T any](ctx context.Context, conn *database.Connection, model *T) error {
 	schema := reflectutil.Parse(model)
 	v := reflect.ValueOf(model).Elem()
 	if schema.PrimaryKey == nil {
@@ -409,6 +503,47 @@ func Delete[T any](ctx context.Context, conn *database.Connection, model *T) err
 		return err
 	}
 	return dispatchHook(model, "AfterDelete", hctx)
+}
+
+// Restore clears the deleted_at column of a soft-deleted model, bringing the
+// row back into the default query scope. It is an error to call Restore on a
+// model that is not soft-deletable.
+func Restore[T any](ctx context.Context, conn *database.Connection, model *T) error {
+	schema := reflectutil.Parse(model)
+	v := reflect.ValueOf(model).Elem()
+	if schema.PrimaryKey == nil {
+		return errors.New("orm: cannot restore model without a primary key")
+	}
+	if schema.DeletedAt == nil {
+		return errors.New("orm: Restore called on a model without soft deletes")
+	}
+	pkVal := v.FieldByIndex(schema.PrimaryKey.Index).Interface()
+	tableName := tableNameFor(model, schema)
+	if _, err := query.New(conn, tableName).
+		Where(schema.PrimaryKey.Column, "=", pkVal).
+		Update(ctx, map[string]any{schema.DeletedAt.Column: nil}); err != nil {
+		return err
+	}
+	setDeletedAt(v.FieldByIndex(schema.DeletedAt.Index), nil)
+	return nil
+}
+
+// setDeletedAt writes a *time.Time into the deleted_at field, supporting both
+// pointer (*time.Time) and value (time.Time) field declarations.
+func setDeletedAt(fv reflect.Value, t *time.Time) {
+	if fv.Kind() == reflect.Ptr {
+		if t == nil {
+			fv.Set(reflect.Zero(fv.Type()))
+			return
+		}
+		fv.Set(reflect.ValueOf(t))
+		return
+	}
+	if t == nil {
+		fv.Set(reflect.Zero(fv.Type()))
+		return
+	}
+	fv.Set(reflect.ValueOf(*t))
 }
 
 func collectValues(schema *reflectutil.Schema, v reflect.Value, forInsert bool) map[string]any {
@@ -459,6 +594,51 @@ func collectUpdateValues(schema *reflectutil.Schema, v reflect.Value) map[string
 		out[f.Column] = val
 	}
 	return out
+}
+
+// errChunkNeedsPK is returned by Chunk when the model has no primary key to
+// page by.
+var errChunkNeedsPK = errors.New("orm: Chunk requires a primary key on the model")
+
+// primaryKeyValue returns the primary-key value of model, or nil if the schema
+// has no primary key.
+func primaryKeyValue[T any](schema *reflectutil.Schema, model *T) any {
+	if schema.PrimaryKey == nil {
+		return nil
+	}
+	return reflect.ValueOf(model).Elem().FieldByIndex(schema.PrimaryKey.Index).Interface()
+}
+
+// assignColumns writes the column-keyed attrs map onto the model's matching
+// fields, applying registered casts where declared. Unknown columns are
+// ignored. It mirrors the value handling used by hydrateRows so values supplied
+// to FirstOrCreate/UpdateOrCreate convert the same way as scanned rows.
+func assignColumns[T any](model *T, attrs map[string]any) error {
+	schema := reflectutil.Parse(model)
+	v := reflect.ValueOf(model).Elem()
+	for col, raw := range attrs {
+		f := schema.FieldByColumn(col)
+		if f == nil || f.Skip || f.IsRelation {
+			continue
+		}
+		fv := v.FieldByIndex(f.Index)
+		if !fv.CanSet() {
+			continue
+		}
+		if raw == nil {
+			fv.Set(reflect.Zero(fv.Type()))
+			continue
+		}
+		rv := reflect.ValueOf(raw)
+		if rv.Type().AssignableTo(fv.Type()) {
+			fv.Set(rv)
+			continue
+		}
+		if err := assignScanned(fv, raw); err != nil {
+			return fmt.Errorf("orm: assign %s: %w", col, err)
+		}
+	}
+	return nil
 }
 
 func tableNameFor(model any, schema *reflectutil.Schema) string {
