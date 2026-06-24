@@ -3,6 +3,19 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.20.2 — 2026-06-24
+
+### Security / Dependencies
+
+- `go get -u ./...` + `go mod tidy`: raised the dependency floor so
+  consumers inherit patched versions. Notably **`golang.org/x/crypto`
+  v0.17.0 → v0.53.0** (closes the old advisories Dependabot flagged),
+  plus `jackc/pgx/v5` 5.6.0 → 5.10.0, `go-sql-driver/mysql` 1.8.1 →
+  1.10.0, `mattn/go-sqlite3` 1.14.22 → 1.14.47, `spf13/cobra` 1.8.1 →
+  1.10.2, `golang-jwt/jwt/v5` unchanged (already current), and the
+  `golang.org/x/{sync,sys,text}` set. `govulncheck ./...` reports **no
+  vulnerabilities** (reachable or otherwise). All tests pass on go1.26.4.
+
 ## v0.20.1 — 2026-06-24
 
 ### Security
