@@ -187,6 +187,8 @@ Run "%s <command> --help" to see options for each command.`, a.ProjectName),
 	mount(cmd.NewMakeTest(bridge), "make:test")
 	mount(cmd.NewMakeCRUD(bridge), "make:crud")
 	mount(cmd.NewMakeController(bridge), "make:controller")
+	mount(cmd.NewMakeResource(bridge), "make:resource")
+	mount(cmd.NewMakePolicy(bridge), "make:policy")
 	mount(cmd.NewInit(bridge), "init")
 	mount(cmd.NewNew(bridge), "new")
 
@@ -209,6 +211,7 @@ Run "%s <command> --help" to see options for each command.`, a.ProjectName),
 	mount(cmd.NewKeyGenerate(bridge), "key:generate")
 	mount(cmd.NewMakeService(bridge), "make:service")
 	mount(cmd.NewMakeScheme(bridge), "make:scheme")
+	mount(cmd.NewGenClient(bridge), "gen:client")
 
 	return root
 }

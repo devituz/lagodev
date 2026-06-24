@@ -1,0 +1,50 @@
+package {{ .Package }}
+
+import (
+	"context"
+{{- if .ModelImport }}
+
+	"{{ .ModelImport }}"
+{{- end }}
+)
+
+// {{ .UserType }} qisqartmasi — policy receiver'larida ishlatiladigan joriy
+// foydalanuvchi turi. Loyihangizdagi haqiqiy user modeliga moslang (masalan
+// models.User) yoki authz.New[U]() bilan parametrlangan turga almashtiring.
+type {{ .UserType }} = any
+
+// {{ .Name }} — {{ .ModelRef }} resursi uchun authz.Policy. Har bir metod bitta
+// ability'ni qoplaydi; gate ability nomini mos metodga yo'naltiradi:
+//
+//	g := authz.New[{{ .UserType }}]()
+//	authz.Policy[{{ .ModelRef }}](g, {{ .Name }}{})
+//	ok, _ := g.Allows(ctx, "update", currentUser, {{ .LowerModel }})
+//
+// Default barcha metodlar false qaytaradi (deny-by-default) — har birini
+// loyihangiz qoidalariga moslang.
+type {{ .Name }} struct{}
+
+// ViewAny — foydalanuvchi {{ .ModelRef }} ro'yxatini ko'ra oladimi.
+func ({{ .Name }}) ViewAny(_ context.Context, _ {{ .UserType }}, _ {{ .ModelRef }}) bool {
+	return false
+}
+
+// View — foydalanuvchi berilgan {{ .ModelRef }}'ni ko'ra oladimi.
+func ({{ .Name }}) View(_ context.Context, _ {{ .UserType }}, _ {{ .ModelRef }}) bool {
+	return false
+}
+
+// Create — foydalanuvchi yangi {{ .ModelRef }} yarata oladimi.
+func ({{ .Name }}) Create(_ context.Context, _ {{ .UserType }}, _ {{ .ModelRef }}) bool {
+	return false
+}
+
+// Update — foydalanuvchi berilgan {{ .ModelRef }}'ni o'zgartira oladimi.
+func ({{ .Name }}) Update(_ context.Context, _ {{ .UserType }}, _ {{ .ModelRef }}) bool {
+	return false
+}
+
+// Delete — foydalanuvchi berilgan {{ .ModelRef }}'ni o'chira oladimi.
+func ({{ .Name }}) Delete(_ context.Context, _ {{ .UserType }}, _ {{ .ModelRef }}) bool {
+	return false
+}

@@ -1,0 +1,24 @@
+package {{ .Package }}
+
+import (
+{{- if .ModelImport }}
+	"{{ .ModelImport }}"
+
+{{ end }}
+	"github.com/devituz/lagodev/resource"
+)
+
+// {{ .Name }} — {{ .ModelRef }} modelini toza JSON ko'rinishiga o'tkazadigan
+// API Resource. Bir marta yozilgan map har bir endpoint'da bir xil natija
+// beradi; parol/secret kabi maydonlarni shu yerda chiqarib tashlang.
+//
+//	c.JSON(200, resource.Item(user, {{ .VarName }}))             // bitta obyekt
+//	c.JSON(200, resource.Collection(users, {{ .VarName }}))      // {"data": [...]}
+var {{ .VarName }} = resource.Func(func(m {{ .ModelRef }}) any {
+	return resource.Fields{
+		"id": m.ID,
+{{- range .Fields }}
+		"{{ .Column }}": m.{{ .FieldName }},
+{{- end }}
+	}
+})

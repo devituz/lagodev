@@ -3,6 +3,82 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.24.0 — 2026-06-25
+
+Gap-matrix completion — auth breadth, server-rendered UX, observability,
+GraphQL, real-time, admin, dashboards, search, and codegen. This release closes
+**every remaining item** in the ROADMAP competitive gap matrix (§2). All new
+packages are additive and live in the main module, so `go get
+github.com/devituz/lagodev@v0.24.0` is backward-compatible — no existing API
+changed. Each package ships regression tests (`go test -race` green), `go vet` +
+`gofmt` clean, `govulncheck` clean, and runnable godoc `Example` functions.
+
+### Added — auth breadth
+
+- **`auth/account` — credential lifecycle.** High-entropy, single-use, hashed
+  (SHA-256, selector/verifier split) password-reset and email-verification
+  tokens; HMAC signed URLs with embedded expiry (constant-time verify); a
+  fixed-window login `Throttle` (lockout + reset). Store interface for SQL/Redis
+  backends; in-memory default.
+- **`auth/token` — Sanctum-style API tokens.** Hashed personal access tokens
+  with abilities/scopes (`Can`/`Cant`, `*` wildcard), expiry, revocation,
+  last-used tracking; constant-time lookup that does not leak token existence.
+- **`auth/oauth` — OAuth2 / social login.** Authorization-code flow with PKCE
+  (S256), `Exchange` (JSON + form-encoded token endpoints), normalized `User`
+  mapping, prebuilt `Google`/`GitHub`/`Generic` (OIDC) providers, and a
+  stateless HMAC signed-`state` helper (CSRF). Injectable `*http.Client`.
+- **`auth/guard` — session-based auth guard.** Cookie/"web" guard over the
+  `session` manager: `Attempt`/`Login`/`Logout`/`User`/`Check`, session-id
+  regeneration on login (fixation defense), per-request user cache, pluggable
+  `UserProvider` + password `Hasher` (bcrypt default), optional remember-me, and
+  `RequireAuth`/`Guest` middleware.
+
+### Added — UX & presentation
+
+- **`view` — template engine.** Thin layer over `html/template`: layouts,
+  partials, components, named views, custom funcs, auto-escaping; renders to any
+  writer (HTTP + mail). Inline-content layout fallback.
+- **`admin` — Django-style auto-CRUD panel.** `Register[T]` reflects
+  `column:`/`orm:` tags into list/detail/create/edit/delete over HTTP;
+  pagination, search, soft-delete awareness, CSRF, and an RBAC `Can` gate on
+  every action; data access behind a `Store` interface (ORM-backed + in-memory).
+- **`telescope` — Telescope-style insight dashboard.** Bounded ring-buffer
+  recorder for requests/queries/jobs/cache/mail/exceptions/logs with per-request
+  N+1 query flagging, request↔query correlation middleware, and an HTML+JSON
+  dashboard (auto-escaped).
+- **`queue/dashboard` — Horizon/Bull-Board-style queue UI.** Stats, per-queue
+  throughput sampler (goroutine with `Stop`), failed-job list with
+  retry/forget/flush (CSRF-guarded), and a JSON stats endpoint, all behind an
+  `Inspector` interface.
+
+### Added — data, API & resilience
+
+- **`observability` — OpenTelemetry-native traces & metrics.** Spans
+  (parent/child, attributes, status, W3C `traceparent` propagation), and
+  counters/gauges/histograms with a concurrency-safe registry.
+- **`graphql` — struct-first GraphQL.** Type system + lexer/parser, an executor
+  (`Execute`) with default resolvers, variable/argument coercion, NonNull
+  null-bubbling, fragment support (with cycle detection guarding against
+  stack-overflow DoS), per-field error paths, and an HTTP `Handler`.
+- **`realtime` — high-level WebSocket gateway.** Hub with public/private/presence
+  channels, authorization hook, presence roster + join/leave frames, bounded
+  per-client outbox with a slow-consumer policy (drop vs disconnect), built over
+  a transport-agnostic `Conn`.
+- **`search` — full-text search abstraction.** `Engine` interface with an
+  in-memory inverted-index engine (TF ranking, filters, prefix, pagination) and
+  a Postgres `tsvector`/`tsquery` engine (parameterized, SQLi-safe) over
+  `database/sql`.
+- **`resilience` — circuit breaker.** Closed→open→half-open state machine with an
+  injectable clock, consecutive-failure and failure-ratio tripping, and
+  `Wrap`/`Do` middleware.
+
+### Added — codegen
+
+- **`lago make:model|make:resource|make:policy`** and **`lago gen:client`**
+  (typed Go HTTP client generated from an OpenAPI spec) join the existing
+  `make:*` generators. `make:model` can chain `--migration`/`--factory`/
+  `--resource`/`--policy`.
+
 ## v0.23.0 — 2026-06-24
 
 API-first (Roadmap milestone v0.23.0). Additive.

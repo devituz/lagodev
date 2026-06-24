@@ -35,6 +35,8 @@ func NewMakeModel(env *Env) *cobra.Command {
 		seeder     bool
 		test       bool
 		controller bool
+		resource   bool
+		policy     bool
 		all        bool
 		force      bool
 		fields     string
@@ -100,6 +102,18 @@ func NewMakeModel(env *Env) *cobra.Command {
 					return err
 				}
 			}
+			if all || resource {
+				if err := generateResourceWithFields(cmd, env,
+					paths.Resources, dir, name+"Resource", name, parsed, force); err != nil {
+					return err
+				}
+			}
+			if all || policy {
+				if err := generatePolicyInDir(cmd, env,
+					paths.Policies, dir, name+"Policy", name, "User", force); err != nil {
+					return err
+				}
+			}
 			return nil
 		},
 	}
@@ -109,7 +123,9 @@ func NewMakeModel(env *Env) *cobra.Command {
 	c.Flags().BoolVarP(&seeder, "seeder", "s", false, "also create a seeder")
 	c.Flags().BoolVarP(&test, "test", "t", false, "also create a test")
 	c.Flags().BoolVarP(&controller, "controller", "c", false, "also create a REST controller")
-	c.Flags().BoolVarP(&all, "all", "a", false, "create migration, factory, seeder, test and controller")
+	c.Flags().BoolVarP(&resource, "resource", "r", false, "also create an API resource")
+	c.Flags().BoolVarP(&policy, "policy", "p", false, "also create an authorization policy")
+	c.Flags().BoolVarP(&all, "all", "a", false, "create migration, factory, seeder, test, controller, resource and policy")
 	c.Flags().BoolVar(&force, "force", false, "overwrite existing files")
 	c.Flags().StringVar(&fields, "fields", "", "field spec, e.g. name:string,email:string:unique")
 	c.Flags().StringVar(&framework, "framework", "web", "controller flavor for -c: web (default) or gin")

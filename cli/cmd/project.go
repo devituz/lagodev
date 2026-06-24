@@ -26,6 +26,8 @@ type Paths struct {
 	Factories  string `json:"factories"`
 	Seeders    string `json:"seeders"`
 	Tests      string `json:"tests"`
+	Resources  string `json:"resources"`
+	Policies   string `json:"policies"`
 }
 
 // DefaultPaths returns the conventional layout (Laravel-flavored).
@@ -36,6 +38,8 @@ func DefaultPaths() Paths {
 		Factories:  "factories",
 		Seeders:    "seeders",
 		Tests:      "tests",
+		Resources:  "resources",
+		Policies:   "policies",
 	}
 }
 
@@ -99,6 +103,12 @@ func loadProject() *ProjectConfig {
 	}
 	if loaded.Paths.Tests != "" {
 		cfg.Paths.Tests = loaded.Paths.Tests
+	}
+	if loaded.Paths.Resources != "" {
+		cfg.Paths.Resources = loaded.Paths.Resources
+	}
+	if loaded.Paths.Policies != "" {
+		cfg.Paths.Policies = loaded.Paths.Policies
 	}
 	return cfg
 }

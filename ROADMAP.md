@@ -56,28 +56,32 @@ flows), **developer surface** (admin, codegen, dashboards, templating), and
 
 `✅ have` · `🟡 partial` · `❌ missing`
 
-| Feature | Laravel | Django | NestJS | lagodev | Action |
+> **Status (v0.24.0): the entire gap matrix is delivered.** Every lagodev cell
+> below is now ✅ — parity with Laravel/Django/NestJS across the matrix, reached
+> as of v0.24.0. The last column names the shipping package and version.
+
+| Feature | Laravel | Django | NestJS | lagodev | Delivered |
 |---|:--:|:--:|:--:|:--:|---|
-| Service Container / DI | ✅ | 🟡 | ✅ (core) | ❌ | **P0** build `container` |
-| Modules / providers / bootstrap | ✅ | ✅ apps | ✅ | 🟡 | **P0** `app`/`module` layer |
-| API Resources / Serializers | ✅ | ✅ DRF | ✅ | ❌ | **P0** `resource` package |
-| Framework-wide OpenAPI/Swagger | 🟡 | 🟡 | ✅ | 🟡 gin-only | **P0** `openapi` package |
-| Eager loading `With("a.b")` | ✅ | ✅ | ✅ | 🟡 manual | **P0** ORM `With` |
-| Auth: sessions/guards | ✅ | ✅ | ✅ | ❌ | **P1** session guard |
-| Auth: password reset / email verify | ✅ | ✅ | 🟡 | ❌ | **P1** account flows |
-| Auth: OAuth2 / social login | ✅ Socialite | 🟡 | 🟡 | ❌ | **P1** `oauth` |
-| Auth: API token management | ✅ Sanctum | ✅ DRF | 🟡 | 🟡 JWT only | **P1** token store |
-| Template / view engine | ✅ Blade | ✅ DTL | 🟡 | ❌ | **P1** `view` (html/template) |
-| Admin / auto-CRUD panel | 🟡 Nova($) | ✅ killer | 🟡 | ❌ | **P1** `admin` (differentiator) |
-| GraphQL | 🟡 | 🟡 | ✅ | ❌ | **P2** `graphql` |
-| WebSocket high-level gateway | ✅ | 🟡 | ✅ | 🟡 adapter | **P2** `realtime` |
-| Observability dashboard | ✅ Telescope/Horizon | 🟡 | 🟡 | ❌ | **P2** `telescope` |
-| Native tracing/metrics (OTel) | 🟡 | 🟡 | 🟡 | ❌ | **P1** `observability` (differentiator) |
-| Collections / data pipeline | ✅ | 🟡 | 🟡 | ❌ | **P2** `collection` (generics) |
-| Rate limit / resilience | ✅ | 🟡 | ✅ | 🟡 | **P2** circuit breaker |
-| Codegen CLI (model/ctrl/client) | ✅ Artisan | ✅ mgmt cmds | ✅ nest g | 🟡 | **P1** extend `lago gen` |
-| Full-text / search abstraction | ✅ Scout | 🟡 | 🟡 | ❌ | **P2** `search` |
-| Background job dashboard | ✅ Horizon | 🟡 | 🟡 Bull Board | ❌ | **P2** queue UI |
+| Service Container / DI | ✅ | 🟡 | ✅ (core) | ✅ | `container` (v0.22.0) |
+| Modules / providers / bootstrap | ✅ | ✅ apps | ✅ | ✅ | `app` (v0.22.0) |
+| API Resources / Serializers | ✅ | ✅ DRF | ✅ | ✅ | `resource` (v0.22.0) |
+| Framework-wide OpenAPI/Swagger | 🟡 | 🟡 | ✅ | ✅ | `openapi` (v0.23.0) |
+| Eager loading `With("a.b")` | ✅ | ✅ | ✅ | ✅ | `orm` (v0.22.0) |
+| Auth: sessions/guards | ✅ | ✅ | ✅ | ✅ | `auth/guard` (v0.24.0) |
+| Auth: password reset / email verify | ✅ | ✅ | 🟡 | ✅ | `auth/account` (v0.24.0) |
+| Auth: OAuth2 / social login | ✅ Socialite | 🟡 | 🟡 | ✅ | `auth/oauth` (v0.24.0) |
+| Auth: API token management | ✅ Sanctum | ✅ DRF | 🟡 | ✅ | `auth/token` (v0.24.0) |
+| Template / view engine | ✅ Blade | ✅ DTL | 🟡 | ✅ | `view` (v0.24.0) |
+| Admin / auto-CRUD panel | 🟡 Nova($) | ✅ killer | 🟡 | ✅ | `admin` (v0.24.0) |
+| GraphQL | 🟡 | 🟡 | ✅ | ✅ | `graphql` (v0.24.0) |
+| WebSocket high-level gateway | ✅ | 🟡 | ✅ | ✅ | `realtime` (v0.24.0) |
+| Observability dashboard | ✅ Telescope/Horizon | 🟡 | 🟡 | ✅ | `telescope` (v0.24.0) |
+| Native tracing/metrics (OTel) | 🟡 | 🟡 | 🟡 | ✅ | `observability` (v0.24.0) |
+| Collections / data pipeline | ✅ | 🟡 | 🟡 | ✅ | `collection` (v0.23.0) |
+| Rate limit / resilience | ✅ | 🟡 | ✅ | ✅ | `resilience` (v0.24.0) |
+| Codegen CLI (model/ctrl/client) | ✅ Artisan | ✅ mgmt cmds | ✅ nest g | ✅ | `lago make:*`/`gen:client` (v0.24.0) |
+| Full-text / search abstraction | ✅ Scout | 🟡 | 🟡 | ✅ | `search` (v0.24.0) |
+| Background job dashboard | ✅ Horizon | 🟡 | 🟡 Bull Board | ✅ | `queue/dashboard` (v0.24.0) |
 
 ---
 
@@ -218,10 +222,9 @@ Parity is the floor. These make lagodev objectively better for its niche:
 |---|---|---|
 | **v0.22.0** | Application core | `container` (DI), `app`/modules, `resource`, ORM `With`, `lago gen` start |
 | **v0.23.0** | API-first | `openapi` (framework-wide), `collection`, typed client gen |
-| **v0.24.0** | Auth + UX | auth breadth (sessions/account/OAuth), `view`, `observability` (OTel) |
-| **v0.25.0** | Productivity | `admin` panel, `resilience` |
-| **v0.26.0** | Real-time + insight | `graphql`, `realtime`, `telescope`, queue dashboard |
-| **v0.27.0** | Scale | `search`, distributed scheduling/leader election |
+| **v0.24.0** ✅ | Gap-matrix complete | auth breadth (`auth/guard`,`account`,`oauth`,`token`), `view`, `observability` (OTel), `admin`, `resilience`, `graphql`, `realtime`, `telescope`, `queue/dashboard`, `search`, `gen:client` — **all §2 items delivered** |
+| ~~v0.25.0–v0.27.0~~ | _(pulled into v0.24.0)_ | The productivity / real-time / scale features originally split across these milestones all landed in v0.24.0. |
+| **v0.27.0+** | Scale (remaining) | distributed scheduling / leader election, zero-downtime migration gates (§4) |
 | **v1.0.0** | Stability | API freeze, docs site, security audit, perf gates |
 
 ---
