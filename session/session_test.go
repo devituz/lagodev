@@ -206,3 +206,36 @@ func TestStore_ExpiresEntries(t *testing.T) {
 		t.Fatal("expired session must reload as new")
 	}
 }
+
+func TestMemoryStore_NegativeTTLRemoves(t *testing.T) {
+	// Regression: negative ttl means "already expired" — Write must drop
+	// the record rather than store it (forever or with default TTL).
+	store := NewMemoryStore(time.Hour)
+	defer store.Close()
+	ctx := context.Background()
+
+	if err := store.Write(ctx, "id1", map[string]any{"a": 1}, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := store.Read(ctx, "id1"); !ok {
+		t.Fatal("setup write missing")
+	}
+	if err := store.Write(ctx, "id1", map[string]any{"a": 1}, -time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := store.Read(ctx, "id1"); ok {
+		t.Fatal("negative-ttl Write must remove record")
+	}
+}
+
+func TestMemoryStore_ZeroTTLUsesDefault(t *testing.T) {
+	store := NewMemoryStore(time.Hour)
+	defer store.Close()
+	ctx := context.Background()
+	if err := store.Write(ctx, "id2", map[string]any{"a": 1}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := store.Read(ctx, "id2"); !ok {
+		t.Fatal("ttl==0 must store using default TTL, not be dropped")
+	}
+}

@@ -48,7 +48,17 @@ type Client struct {
 	timeout    time.Duration
 	retries    int
 	backoff    time.Duration
+	maxBody    int64
 }
+
+// DefaultMaxResponseBytes caps how much of a response body is buffered
+// into memory, guarding against a hostile or runaway server OOMing the
+// process. Override per-client with MaxResponseBytes.
+const DefaultMaxResponseBytes int64 = 10 << 20 // 10 MiB
+
+// ErrResponseTooLarge is returned when a response body exceeds the
+// configured cap (see MaxResponseBytes).
+var ErrResponseTooLarge = errors.New("httpclient: response body exceeds limit")
 
 // New returns a Client with safe defaults (10s timeout, no retries,
 // stdlib transport).
@@ -59,6 +69,7 @@ func New() *Client {
 		query:      url.Values{},
 		timeout:    10 * time.Second,
 		backoff:    100 * time.Millisecond,
+		maxBody:    DefaultMaxResponseBytes,
 	}
 }
 
@@ -145,6 +156,17 @@ func (c *Client) Backoff(d time.Duration) *Client {
 	return cp
 }
 
+// MaxResponseBytes caps how many bytes of a response body are buffered
+// into memory. A response larger than the cap fails with
+// ErrResponseTooLarge instead of consuming unbounded memory. The
+// default is DefaultMaxResponseBytes (10 MiB); pass a value <= 0 to
+// disable the cap (opt-out) when you trust the upstream.
+func (c *Client) MaxResponseBytes(n int64) *Client {
+	cp := c.clone()
+	cp.maxBody = n
+	return cp
+}
+
 // Transport replaces the underlying http.RoundTripper (e.g. for mocks
 // or to enforce TLS pinning).
 func (c *Client) Transport(rt http.RoundTripper) *Client {
@@ -227,7 +249,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ex
 			_ = resp.Body.Close()
 			lastErr = fmt.Errorf("httpclient: retryable status %d", resp.StatusCode)
 		} else {
-			return readResponse(resp)
+			return readResponse(resp, c.maxBody)
 		}
 		if i < attempts-1 {
 			select {
@@ -277,11 +299,20 @@ type Response struct {
 	body    []byte
 }
 
-func readResponse(resp *http.Response) (*Response, error) {
+func readResponse(resp *http.Response, maxBody int64) (*Response, error) {
 	defer resp.Body.Close()
-	b, err := io.ReadAll(resp.Body)
+	var reader io.Reader = resp.Body
+	if maxBody > 0 {
+		// Read one byte past the cap so we can tell a body that's exactly
+		// at the limit from one that overflows it.
+		reader = io.LimitReader(resp.Body, maxBody+1)
+	}
+	b, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, fmt.Errorf("httpclient: read response: %w", err)
+	}
+	if maxBody > 0 && int64(len(b)) > maxBody {
+		return nil, ErrResponseTooLarge
 	}
 	return &Response{status: resp.StatusCode, headers: resp.Header, body: b}, nil
 }

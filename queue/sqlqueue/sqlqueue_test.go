@@ -3,6 +3,9 @@ package sqlqueue
 import (
 	"context"
 	"errors"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -122,6 +125,101 @@ func TestOrphanRecovery_AfterVisibilityTimeout(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if _, err := q.Pop(ctx, time.Second); err != nil {
 		t.Fatalf("orphan must reappear after visibility timeout, got %v", err)
+	}
+}
+
+// TestOrphanRecovery_IncrementsAttempts verifies that recovering an
+// orphaned (reserved-but-abandoned) job bumps attempts so MaxRetry can
+// eventually bound a poison job that keeps outliving the visibility
+// window. Regression: recovery used to clear reserved_at without
+// touching attempts, allowing an unbounded re-delivery loop.
+func TestOrphanRecovery_IncrementsAttempts(t *testing.T) {
+	q := newQueue(t)
+	ctx := context.Background()
+	_ = q.Push(ctx, queue.Job{ID: "orphan-1", Name: "x", Payload: []byte("p")})
+
+	first, err := q.Pop(ctx, time.Second)
+	if err != nil {
+		t.Fatalf("Pop: %v", err)
+	}
+	if first.Attempts != 0 {
+		t.Fatalf("first delivery attempts = %d, want 0", first.Attempts)
+	}
+	// Abandon (no Ack/Nack); wait past the visibility timeout.
+	time.Sleep(300 * time.Millisecond)
+
+	second, err := q.Pop(ctx, time.Second)
+	if err != nil {
+		t.Fatalf("orphan re-Pop: %v", err)
+	}
+	if second.Attempts != 1 {
+		t.Fatalf("recovered job attempts = %d, want 1", second.Attempts)
+	}
+}
+
+// TestConcurrentReservers_NoErrorsNoDoubleProcessing spins up N workers
+// reserving from the same SQLite-backed queue. None must error with a
+// lock and no job may be claimed twice. Regression for SQLITE_LOCKED on
+// the SELECT-then-UPDATE lock upgrade.
+func TestConcurrentReservers_NoErrorsNoDoubleProcessing(t *testing.T) {
+	// A long visibility timeout so orphan recovery cannot re-deliver and
+	// confuse the dedup check.
+	conn := newConn(t)
+	q, err := New(conn, WithVisibilityTimeout(time.Hour))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := q.Setup(context.Background()); err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+
+	ctx := context.Background()
+	const nJobs = 60
+	for i := 0; i < nJobs; i++ {
+		if err := q.Push(ctx, queue.Job{
+			ID:      "c-" + strconv.Itoa(i),
+			Name:    "x",
+			Payload: []byte("p"),
+		}); err != nil {
+			t.Fatalf("Push %d: %v", i, err)
+		}
+	}
+
+	const workers = 8
+	var (
+		mu      sync.Mutex
+		seen    = map[string]bool{}
+		claimed int32
+		wg      sync.WaitGroup
+	)
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			for {
+				j, err := q.Pop(ctx, 100*time.Millisecond)
+				if errors.Is(err, queue.ErrEmpty) {
+					return
+				}
+				if err != nil {
+					t.Errorf("Pop errored under concurrency: %v", err)
+					return
+				}
+				mu.Lock()
+				if seen[j.ID] {
+					t.Errorf("job %s reserved twice", j.ID)
+				}
+				seen[j.ID] = true
+				mu.Unlock()
+				atomic.AddInt32(&claimed, 1)
+				_ = q.Ack(ctx, j.ID)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if int(claimed) != nJobs {
+		t.Fatalf("claimed %d jobs, want %d", claimed, nJobs)
 	}
 }
 

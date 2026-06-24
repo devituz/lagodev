@@ -41,6 +41,14 @@ func TestDuration_ParsesGoFormat(t *testing.T) {
 	assert.Equal(t, 750*time.Millisecond, config.Duration("LAGO_TEST_DUR", 0))
 }
 
+func TestLoadEnv_DoesNotMutateCallerSlice(t *testing.T) {
+	files := []string{"does-not-exist-1.env", "does-not-exist-2.env"}
+	orig := append([]string(nil), files...)
+	err := config.LoadEnv(files...)
+	assert.NoError(t, err) // missing files silently ignored
+	assert.Equal(t, orig, files, "LoadEnv must not mutate the caller's slice")
+}
+
 func TestFromEnv_BuildsDatabaseConfig(t *testing.T) {
 	t.Setenv("DB_CONNECTION", "postgres")
 	t.Setenv("DB_HOST", "db.example.com")

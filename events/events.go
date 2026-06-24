@@ -27,6 +27,7 @@ package events
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 )
@@ -76,7 +77,18 @@ func Listen[E any](d *Dispatcher, fn func(ctx context.Context, e E) error) {
 // Dispatch fans the event out to its listeners. Returns the joined
 // errors from listeners (or nil).
 func (d *Dispatcher) Dispatch(ctx context.Context, event any) error {
-	t := reflect.TypeOf(event)
+	// Normalize pointer events to their element value so Dispatch(&Evt{})
+	// reaches listeners registered via Listen[Evt]. Listeners always take
+	// the value type (E in Listen[E]); without this, a pointer dispatch
+	// would silently match nothing.
+	ev := reflect.ValueOf(event)
+	for ev.Kind() == reflect.Ptr {
+		if ev.IsNil() {
+			return nil
+		}
+		ev = ev.Elem()
+	}
+	t := ev.Type()
 	d.mu.RLock()
 	handlers := d.handlers[t]
 	stopOn := d.stopOn
@@ -84,12 +96,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event any) error {
 	if len(handlers) == 0 {
 		return nil
 	}
-	args := []reflect.Value{reflect.ValueOf(ctx), reflect.ValueOf(event)}
+	args := []reflect.Value{reflect.ValueOf(ctx), ev}
 	var errs []error
 	for _, h := range handlers {
-		out := h.fn.Call(args)
-		if !out[0].IsNil() {
-			err := out[0].Interface().(error)
+		if err := callListener(h.fn, args); err != nil {
 			errs = append(errs, err)
 			if stopOn {
 				break
@@ -97,6 +107,25 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event any) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// callListener invokes a listener and converts a panic into an error so
+// one misbehaving listener cannot abort the rest of the fan-out.
+func callListener(fn reflect.Value, args []reflect.Value) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				err = fmt.Errorf("events: listener panic: %w", e)
+			} else {
+				err = fmt.Errorf("events: listener panic: %v", r)
+			}
+		}
+	}()
+	out := fn.Call(args)
+	if !out[0].IsNil() {
+		err = out[0].Interface().(error)
+	}
+	return err
 }
 
 // HasListeners reports whether at least one listener is registered for

@@ -131,6 +131,63 @@ func TestEncode_SubjectIsQEncoded(t *testing.T) {
 	}
 }
 
+func TestEncode_RejectsCRLFInRecipient(t *testing.T) {
+	// Classic header-injection: a CRLF in a recipient tries to smuggle a
+	// hidden Bcc into the header block.
+	_, err := NewMessage().
+		From("a@x").
+		To("b@x\r\nBcc: attacker@evil.com").
+		Subject("s").Text("hi").Build().Encode()
+	if !errors.Is(err, ErrHeaderInjection) {
+		t.Fatalf("want ErrHeaderInjection, got %v", err)
+	}
+}
+
+func TestEncode_RejectsCRLFInCustomHeader(t *testing.T) {
+	_, err := NewMessage().
+		From("a@x").To("b@x").
+		Header("X-Evil", "ok\r\nBcc: attacker@evil.com").
+		Subject("s").Text("hi").Build().Encode()
+	if !errors.Is(err, ErrHeaderInjection) {
+		t.Fatalf("want ErrHeaderInjection, got %v", err)
+	}
+}
+
+func TestEncode_RejectsCRLFInCustomHeaderKey(t *testing.T) {
+	_, err := NewMessage().
+		From("a@x").To("b@x").
+		Header("X-Evil\r\nBcc: attacker@evil.com", "ok").
+		Subject("s").Text("hi").Build().Encode()
+	if !errors.Is(err, ErrHeaderInjection) {
+		t.Fatalf("want ErrHeaderInjection, got %v", err)
+	}
+}
+
+func TestEncode_NoSmuggledHeaderInOutput(t *testing.T) {
+	// Even if a caller bypasses the recipient path, a smuggled Bcc must
+	// never appear in the rendered header block. A bad To is rejected, so
+	// the only successful encode below uses clean inputs and must not
+	// contain the attacker line.
+	body, err := NewMessage().From("a@x").To("b@x").Subject("s").Text("hi").Build().Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if strings.Contains(string(body), "attacker@evil.com") {
+		t.Fatalf("smuggled Bcc leaked into output:\n%s", body)
+	}
+}
+
+func TestEncode_CanonicalisesAddresses(t *testing.T) {
+	body, err := NewMessage().From("a@x").To("Alice <alice@x>").Subject("s").Text("hi").Build().Encode()
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	s := string(body)
+	if !strings.Contains(s, "alice@x") {
+		t.Fatalf("recipient missing from output:\n%s", s)
+	}
+}
+
 func TestLogMailer_CapturesAndCounts(t *testing.T) {
 	l := NewLogMailer()
 	for i := 0; i < 3; i++ {

@@ -3,6 +3,93 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.20.0 — 2026-06-24
+
+Framework-grade hardening pass. A full audit of every package (exercised
+against real SQLite + httptest, not just snapshot strings) surfaced ~35
+confirmed bugs across the DDL, ORM, HTTP, auth, queue, and IO layers.
+All are fixed with a dedicated regression test each; the suite is green
+under `go test -race ./...`.
+
+### Security
+
+- **Email header injection (critical)** — `mail.Message.Encode` wrote
+  `From`/`To`/`Cc`/`Reply-To` and custom headers raw; a CRLF in any
+  recipient or header value smuggled arbitrary headers (e.g. a hidden
+  `Bcc`). Addresses are now validated via `net/mail` and re-emitted
+  canonically; any CR/LF is rejected with the new `mail.ErrHeaderInjection`.
+- **Filesystem symlink traversal** — `filesystem` Local disk only did
+  lexical `..` checks; a symlink inside the root pointing outside let
+  `Get`/`Put` escape. Paths are now resolved with `EvalSymlinks` and
+  re-verified under the root (`ErrPathTraversal`).
+- **S3 key traversal** — the S3 driver kept leading `..` in object keys
+  (tenant-prefix escape); it now rejects `..`/absolute paths like Local.
+- **SQL injection via `ORDER BY` direction** — `query.Builder.OrderBy`
+  concatenated the direction raw; it is now whitelisted to `ASC`/`DESC`.
+- **Session not actually destroyed on logout** — under
+  `session.Manager.Middleware`, the deferred save re-wrote a destroyed
+  session and re-issued the live cookie. `Destroy` now hard-stops both.
+- **JWT hardening** — `Parse` now verifies `iss`/`aud` when configured,
+  applies clock-skew leeway, and `ParseAccess`/`ParseRefresh` enforce the
+  token type so a refresh token can't be replayed on an access endpoint.
+  `auth.New` rejects secrets shorter than 32 bytes.
+- **authz Gate panics → DoS** — a mis-typed policy method (wrong
+  resource/user type or non-bool return) panicked the request goroutine
+  via reflection; signatures are now validated and skipped. Fixed a data
+  race on the policy registry.
+- **httpclient** unbounded `io.ReadAll` capped (`MaxResponseBytes`,
+  default 10 MiB) to prevent OOM on hostile responses.
+
+### Fixed (correctness)
+
+- **schema**: Postgres `enum` compiled to invalid SQL (`CHECK (VALUE IN …)`);
+  enum/set now emit a column-named `CHECK` (and are enforced on SQLite too).
+  Single-column `.Index()` was silently dropped; `ADD COLUMN … UNIQUE`
+  failed on SQLite; `DROP INDEX`/`DROP FOREIGN KEY` used wrong per-dialect
+  syntax; duplicate generated index names collided. `Index.Name()` /
+  `Foreign.Name()` setters added.
+- **orm/query/relations**: `UPDATE` no longer clobbers `created_at`/PK;
+  `belongsTo` eager-loading no longer collapses parents that share a
+  foreign key (N+1 fix was broken); `NULL` in a non-pointer field no
+  longer errors the whole scan; `Count()` is correct with `GROUP BY`;
+  query builders no longer leak state across calls (`Clone`).
+- **queue/events/scheduling**: a panicking job/listener no longer kills
+  the worker/dispatch; `sqlqueue` no longer double-delivers orphaned jobs
+  or errors with `SQLITE_LOCKED` under concurrent workers (`BEGIN
+  IMMEDIATE` + busy-retry); `Worker.Stop` no longer deadlocks when `Run`
+  never started; the scheduler drains in-flight tasks and is restartable.
+- **casts/inflect/reflectutil**: nil embedded-pointer base models no
+  longer panic on insert; int/bool/date casts accept the types real
+  drivers return; `Singularize`/`Pluralize` handle `-ses`/`-ves`/`-sis`/
+  `-z`/`-o` cases.
+- **database/cache/session**: closed-connection guards; negative cache
+  TTL is now an immediate miss (was "forever").
+- **web**: SSE/streaming now flushes through the default Logger
+  middleware; `c.Status(n)` + a returned value keeps the right
+  `Content-Type`; access logs record the real status/size.
+
+### Added
+
+- `auth`: `ParseTyped`/`ParseAccess`/`ParseRefresh`, `Config.Audience`,
+  `Config.Leeway`, `Config.AllowWeakSecret`.
+- `queue.Worker.OnFailed` dead-letter callback; workers/scheduler restartable.
+- `casts`: `float`/`datetime` casts; `factory.WithSeed`/`WithFaker` for
+  reproducible test data.
+- `httpclient.MaxResponseBytes`; `query.Builder.Clone`/`FirstOrFail`;
+  `web.WithoutDefaultMiddleware`.
+
+### Breaking
+
+- `auth.New` now errors on secrets < 32 bytes (set `Config.AllowWeakSecret`
+  to opt out).
+- `mail.Message.Encode` / mailers return `mail.ErrHeaderInjection` for
+  malformed addresses or CRLF instead of emitting them.
+- `web.SecurityHeadersConfig.NoSniff` → `DisableNoSniff` (inverted; the
+  zero value now keeps `X-Content-Type-Options: nosniff` on).
+- `query.Builder.OrderBy` panics on a direction other than `ASC`/`DESC`.
+- `filesystem` Local/S3 operations return `ErrPathTraversal` for `..` or
+  symlink escapes.
+
 ## v0.19.0 — 2026-06-04
 
 Framework polish + interactive deploy stack. Two themes:

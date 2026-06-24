@@ -34,10 +34,13 @@ func OpenAPI(info SpecInfo, opts ...Option) map[string]any {
 	}
 	paths := map[string]any{}
 	for _, r := range Routes() {
-		path, ok := paths[r.Path].(map[string]any)
+		// The registry stores gin-native paths (`/posts/:id`). OpenAPI
+		// requires `{param}` syntax, so convert at generation time.
+		specPath := ginToOpenAPIPath(r.Path)
+		path, ok := paths[specPath].(map[string]any)
 		if !ok {
 			path = map[string]any{}
-			paths[r.Path] = path
+			paths[specPath] = path
 		}
 		path[strings.ToLower(r.Method)] = operationFor(r, cfg)
 	}
@@ -95,13 +98,28 @@ func ServeOpenAPI(r IRouter, info SpecInfo, opts ...Option) {
 	})
 }
 
+// ginToOpenAPIPath rewrites gin path params (`/posts/:id`) into the
+// OpenAPI `{param}` form (`/posts/{id}`).
+func ginToOpenAPIPath(p string) string {
+	if !strings.Contains(p, ":") {
+		return p
+	}
+	segs := strings.Split(p, "/")
+	for i, s := range segs {
+		if strings.HasPrefix(s, ":") && len(s) > 1 {
+			segs[i] = "{" + s[1:] + "}"
+		}
+	}
+	return strings.Join(segs, "/")
+}
+
 func operationFor(r RouteEntry, _ config) map[string]any {
 	summary := strings.Title(r.Op) + " " + r.Resource
 	op := map[string]any{
 		"summary": summary,
 		"tags":    []string{r.Resource},
 	}
-	if strings.Contains(r.Path, "{id}") {
+	if strings.Contains(r.Path, ":id") || strings.Contains(r.Path, "{id}") {
 		op["parameters"] = []map[string]any{
 			{
 				"name":     "id",

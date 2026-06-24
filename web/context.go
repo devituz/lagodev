@@ -168,12 +168,34 @@ func (c *Context) BindAndValidate(dst any) error {
 // Javoblar
 // ---------------------------------------------------------------------------
 
-// Status faqat status kodini yozadi, body yubormaydi.
+// Status — keyingi body yozilganda foydalaniladigan status kodini
+// rejalashtiradi (darhol WriteHeader chaqirmaydi). Bu JSON/String'ga
+// Content-Type'ni status kodidan oldin yuborish imkonini beradi — aks
+// holda Go ResponseWriter status yozilgach sarlavhalarni rad etadi va
+// klient text/plain oladi.
+//
+// Eslatma: `c.Status(201)` chaqirib so'ngra handler'dan `return value,
+// nil` qaytarsangiz, respond() o'sha status bilan JSON yozadi va
+// Content-Type to'g'ri bo'ladi.
 func (c *Context) Status(code int) {
 	if !c.statusWritten {
-		c.Writer.WriteHeader(code)
-		c.statusWritten = true
+		c.pendingStatus = code
 	}
+}
+
+// writeHeader pendingStatus (yoki berilgan default) bilan WriteHeader'ni
+// bir marta chaqiradi. Content-Type allaqachon o'rnatilgandan keyin
+// chaqirilishi kerak.
+func (c *Context) writeHeader(defaultCode int) {
+	if c.statusWritten {
+		return
+	}
+	code := defaultCode
+	if c.pendingStatus != 0 {
+		code = c.pendingStatus
+	}
+	c.Writer.WriteHeader(code)
+	c.statusWritten = true
 }
 
 // JSON v'ni JSON sifatida code statusi bilan yuboradi.
@@ -182,7 +204,7 @@ func (c *Context) JSON(code int, v any) {
 		return
 	}
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-	c.Status(code)
+	c.writeHeader(code)
 	_ = json.NewEncoder(c.Writer).Encode(v)
 	c.bodyWritten = true
 }
@@ -193,14 +215,14 @@ func (c *Context) String(code int, body string) {
 		return
 	}
 	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	c.Status(code)
+	c.writeHeader(code)
 	_, _ = c.Writer.Write([]byte(body))
 	c.bodyWritten = true
 }
 
 // NoContent 204 javobi (body yo'q).
 func (c *Context) NoContent() {
-	c.Status(http.StatusNoContent)
+	c.writeHeader(http.StatusNoContent)
 	c.bodyWritten = true
 }
 

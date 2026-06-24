@@ -33,7 +33,7 @@ type Grammar interface {
 	// (1-indexed). "?" for MySQL/SQLite, "$1", "$2", … for Postgres.
 	Placeholder(n int) string
 	// CompileType maps a portable column kind + options to a dialect-specific
-	// SQL fragment. See schema.CompileType for full options.
+	// SQL fragment. See ColumnTypeOptions for the full set of options.
 	CompileType(kind string, opts ColumnTypeOptions) string
 	// SupportsReturning indicates whether INSERT … RETURNING is supported.
 	SupportsReturning() bool
@@ -62,8 +62,10 @@ type ColumnTypeOptions struct {
 }
 
 // Connection wraps *sql.DB together with the dialect grammar and connection
-// metadata. It is goroutine-safe and the canonical handle passed across the
-// framework.
+// metadata. It is goroutine-safe — the underlying *sql.DB is already safe for
+// concurrent use, and the exec/query/transaction entrypoints take an RLock to
+// reject calls made after Close (returning ErrClosed). Connection is the
+// canonical handle passed across the framework.
 type Connection struct {
 	Name    string
 	DB      *sql.DB
@@ -77,6 +79,17 @@ type Connection struct {
 
 	mu     sync.RWMutex
 	closed bool
+}
+
+// ErrClosed is returned by exec/query/transaction methods called after the
+// connection has been closed.
+var ErrClosed = errors.New("database: connection closed")
+
+// isClosed reports whether Close has been called, under a read lock.
+func (c *Connection) isClosed() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.closed
 }
 
 // Location returns the active *time.Location (always non-nil; defaults to
@@ -113,6 +126,9 @@ func (c *Connection) Close() error {
 
 // ExecContext logs (if enabled) and forwards Exec to the pool.
 func (c *Connection) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if c.isClosed() {
+		return nil, ErrClosed
+	}
 	start := time.Now()
 	res, err := c.DB.ExecContext(ctx, query, args...)
 	c.observe(ctx, query, args, time.Since(start), err)
@@ -121,6 +137,9 @@ func (c *Connection) ExecContext(ctx context.Context, query string, args ...any)
 
 // QueryContext logs and forwards Query.
 func (c *Connection) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if c.isClosed() {
+		return nil, ErrClosed
+	}
 	start := time.Now()
 	rows, err := c.DB.QueryContext(ctx, query, args...)
 	c.observe(ctx, query, args, time.Since(start), err)
@@ -137,6 +156,9 @@ func (c *Connection) QueryRowContext(ctx context.Context, query string, args ...
 
 // PrepareContext prepares a statement.
 func (c *Connection) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	if c.isClosed() {
+		return nil, ErrClosed
+	}
 	return c.DB.PrepareContext(ctx, query)
 }
 
@@ -150,6 +172,9 @@ func (c *Connection) Transaction(ctx context.Context, fn func(tx *Tx) error) err
 func (c *Connection) TransactionWith(ctx context.Context, opts *sql.TxOptions, fn func(tx *Tx) error) (err error) {
 	if fn == nil {
 		return errors.New("database: nil transaction function")
+	}
+	if c.isClosed() {
+		return ErrClosed
 	}
 	raw, err := c.DB.BeginTx(ctx, opts)
 	if err != nil {

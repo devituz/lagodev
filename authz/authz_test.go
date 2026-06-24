@@ -155,6 +155,74 @@ func TestPolicy_PointerResource(t *testing.T) {
 	}
 }
 
+// otherResourcePolicy has an Update method whose resource parameter is a
+// different type than the resource passed at call time. Before the fix,
+// reflect.Call panicked; now it must be treated as a non-match.
+type Comment struct{ ID uint64 }
+type CommentPolicy struct{}
+
+func (CommentPolicy) Update(_ context.Context, _ User, _ Comment) bool { return true }
+
+// TestPolicy_TypeMismatchDoesNotPanic locks issue #1: a policy whose method
+// signature does not match the runtime resource type must return
+// ErrUnknownAbility instead of panicking inside reflect.
+func TestPolicy_TypeMismatchDoesNotPanic(t *testing.T) {
+	g := New[User]()
+	// Register CommentPolicy for the Post resource type — Update(Comment)
+	// will be matched by name but its resource type differs from Post.
+	Policy[Post](g, CommentPolicy{})
+
+	ok, err := g.Allows(context.Background(), "update", User{ID: 7}, Post{AuthorID: 7})
+	if ok {
+		t.Fatal("type-mismatched policy method must not allow")
+	}
+	if !errors.Is(err, ErrUnknownAbility) {
+		t.Fatalf("want ErrUnknownAbility, got %v", err)
+	}
+}
+
+// badReturnPolicy has a method matching "view" by name but returning a string
+// instead of bool. Before the fix, out[0].Bool() panicked.
+type badReturnPolicy struct{}
+
+func (badReturnPolicy) View(_ context.Context, _ User, _ Post) string { return "yes" }
+
+// TestPolicy_NonBoolReturnDoesNotPanic locks issue #2.
+func TestPolicy_NonBoolReturnDoesNotPanic(t *testing.T) {
+	g := New[User]()
+	Policy[Post](g, badReturnPolicy{})
+
+	ok, err := g.Allows(context.Background(), "view", User{ID: 7}, Post{AuthorID: 7})
+	if ok {
+		t.Fatal("non-bool policy method must not allow")
+	}
+	if !errors.Is(err, ErrUnknownAbility) {
+		t.Fatalf("want ErrUnknownAbility, got %v", err)
+	}
+}
+
+// TestPolicy_ConcurrentRegisterAndAllows locks issue #3: concurrent Policy()
+// writes and Allows() reads of the policies map must be race-free. Run with
+// -race to exercise.
+func TestPolicy_ConcurrentRegisterAndAllows(t *testing.T) {
+	g := New[User]()
+	done := make(chan struct{}, 2)
+	go func() {
+		for i := 0; i < 200; i++ {
+			Policy[Post](g, PostPolicy{})
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		for i := 0; i < 200; i++ {
+			_, _ = g.Allows(context.Background(), "update", User{ID: 7}, Post{AuthorID: 7})
+		}
+		done <- struct{}{}
+	}()
+	<-done
+	<-done
+}
+
 func TestRegistration_IsConcurrencySafe(t *testing.T) {
 	g := New[User]()
 	done := make(chan struct{}, 2)

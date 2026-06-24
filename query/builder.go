@@ -2,10 +2,11 @@
 // the ORM but is fully usable on its own — it returns *sql.Rows where the
 // caller wants raw access.
 //
-// The builder is immutable in spirit: chaining methods returns a new
-// (deeply-cloned) Builder. The actual implementation reuses the receiver and
-// returns it for chaining; the contract is that a Builder, once executed, is
-// not reused.
+// Chaining methods (Where, OrderBy, Limit, ...) mutate and return the
+// receiver, so a Builder is single-use: build it, execute once, discard. The
+// terminal aggregate helpers (Count, Exists, Sum, ...) are the exception —
+// they operate on an internal clone so they never disturb the receiver's
+// clause state and may be called mid-chain.
 package query
 
 import (
@@ -197,13 +198,26 @@ func (b *Builder) Having(col, op string, value any) *Builder {
 	return b
 }
 
-// OrderBy adds an ORDER BY.
+// OrderBy adds an ORDER BY. The direction is whitelisted to ASC/DESC; any
+// other value (e.g. an injection attempt) panics rather than being emitted
+// into the SQL.
 func (b *Builder) OrderBy(col, dir string) *Builder {
-	if dir == "" {
-		dir = "ASC"
-	}
-	b.orders = append(b.orders, orderClause{column: col, dir: strings.ToUpper(dir)})
+	b.orders = append(b.orders, orderClause{column: col, dir: normalizeDir(dir)})
 	return b
+}
+
+// normalizeDir whitelists the ORDER BY direction. Empty defaults to ASC; any
+// value other than ASC/DESC (case-insensitive) is rejected to prevent SQL
+// injection through the direction argument.
+func normalizeDir(dir string) string {
+	switch strings.ToUpper(strings.TrimSpace(dir)) {
+	case "", "ASC":
+		return "ASC"
+	case "DESC":
+		return "DESC"
+	default:
+		panic("query: OrderBy direction must be ASC or DESC, got " + dir)
+	}
 }
 
 // OrderByRaw adds a raw ORDER BY clause.
@@ -236,11 +250,25 @@ func (b *Builder) Limit(n int) *Builder { b.limit = n; return b }
 // Offset sets the row offset.
 func (b *Builder) Offset(n int) *Builder { b.offset = n; return b }
 
-// LockForUpdate appends FOR UPDATE on supported dialects.
-func (b *Builder) LockForUpdate() *Builder { b.lockClause = " FOR UPDATE"; return b }
+// LockForUpdate appends FOR UPDATE on supported dialects. SQLite has no row
+// locking syntax, so the clause is a no-op there.
+func (b *Builder) LockForUpdate() *Builder {
+	if b.conn != nil && b.conn.Grammar.Name() == "sqlite" {
+		return b
+	}
+	b.lockClause = " FOR UPDATE"
+	return b
+}
 
-// SharedLock appends FOR SHARE on supported dialects.
-func (b *Builder) SharedLock() *Builder { b.lockClause = " FOR SHARE"; return b }
+// SharedLock appends FOR SHARE on supported dialects. SQLite has no row
+// locking syntax, so the clause is a no-op there.
+func (b *Builder) SharedLock() *Builder {
+	if b.conn != nil && b.conn.Grammar.Name() == "sqlite" {
+		return b
+	}
+	b.lockClause = " FOR SHARE"
+	return b
+}
 
 // New returns a fresh Builder for the given connection/table.
 func New(conn *database.Connection, table string) *Builder {
@@ -249,6 +277,26 @@ func New(conn *database.Connection, table string) *Builder {
 
 func newSubBuilder(parent *Builder) *Builder {
 	return &Builder{conn: parent.conn, executor: parent.executor}
+}
+
+// Clone returns a deep copy of the builder. Callers that want to branch a
+// query (e.g. run First() and then Get() off the same base) use this to avoid
+// the receiver's single-use mutation semantics leaking across calls.
+func (b *Builder) Clone() *Builder { return b.clone() }
+
+// clone returns a deep copy of the builder so that single-use helpers
+// (Count, Exists, aggregates) and the ORM convenience methods can apply extra
+// clauses without mutating the shared receiver. Slices are copied; the nested
+// sub-builders inside conditions are immutable once built and may be shared.
+func (b *Builder) clone() *Builder {
+	c := *b
+	c.cols = append([]string(nil), b.cols...)
+	c.wheres = append([]condition(nil), b.wheres...)
+	c.joins = append([]joinClause(nil), b.joins...)
+	c.groups = append([]string(nil), b.groups...)
+	c.havings = append([]condition(nil), b.havings...)
+	c.orders = append([]orderClause(nil), b.orders...)
+	return &c
 }
 
 // ToSQL compiles the builder into a SELECT statement and its bound args.
@@ -341,16 +389,33 @@ func (b *Builder) Get(ctx context.Context) (*sql.Rows, error) {
 	return b.executor.QueryContext(ctx, q, args...)
 }
 
-// Count returns the COUNT(*) for the current WHERE/JOIN state.
+// Count returns the COUNT(*) for the current WHERE/JOIN state. When the query
+// has a GROUP BY, a plain COUNT(*) would return only the first group's count;
+// in that case the grouped query is wrapped in a subquery so the result is the
+// number of groups.
 func (b *Builder) Count(ctx context.Context) (int64, error) {
-	clone := *b
-	clone.cols = []string{"COUNT(*) AS aggregate"}
+	clone := b.clone()
 	clone.orders = nil
 	clone.limit = 0
 	clone.offset = 0
-	q, args, err := clone.ToSQL()
-	if err != nil {
-		return 0, err
+
+	var q string
+	var args []any
+	var err error
+	if len(clone.groups) > 0 {
+		// Wrap the grouped query: SELECT COUNT(*) FROM (<grouped>) sub.
+		inner, innerArgs, terr := clone.ToSQL()
+		if terr != nil {
+			return 0, terr
+		}
+		q = "SELECT COUNT(*) AS aggregate FROM (" + inner + ") sub"
+		args = innerArgs
+	} else {
+		clone.cols = []string{"COUNT(*) AS aggregate"}
+		q, args, err = clone.ToSQL()
+		if err != nil {
+			return 0, err
+		}
 	}
 	var n int64
 	if err := b.executor.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
@@ -359,9 +424,10 @@ func (b *Builder) Count(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
-// Exists returns true if at least one row matches.
+// Exists returns true if at least one row matches. It operates on a clone so
+// the receiver's state is not mutated.
 func (b *Builder) Exists(ctx context.Context) (bool, error) {
-	n, err := b.Limit(1).Count(ctx)
+	n, err := b.clone().Limit(1).Count(ctx)
 	return n > 0, err
 }
 
@@ -386,7 +452,7 @@ func (b *Builder) Min(ctx context.Context, col string) (float64, error) {
 }
 
 func (b *Builder) aggregate(ctx context.Context, fn, col string) (float64, error) {
-	clone := *b
+	clone := b.clone()
 	clone.cols = []string{fmt.Sprintf("%s(%s) AS aggregate", fn, b.conn.Grammar.Quote(col))}
 	clone.orders = nil
 	q, args, err := clone.ToSQL()

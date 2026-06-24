@@ -221,3 +221,134 @@ func TestMemoryQueue_ConcurrentProducersConsumers(t *testing.T) {
 func jsonUnmarshal(b []byte, dst any) error {
 	return jsonImpl(b, dst)
 }
+
+type PanicJob struct{ ID int }
+type NormalJob struct{ ID int }
+
+// TestWorker_PanicInHandlerDoesNotKillWorker ensures a panicking handler
+// is recovered and a subsequent normal job still runs. Regression for
+// the worker goroutine dying on handler panic.
+func TestWorker_PanicInHandlerDoesNotKillWorker(t *testing.T) {
+	q := NewMemoryQueue()
+	w := NewWorker(q).Poll(10 * time.Millisecond).Backoff(10 * time.Millisecond).MaxRetry(1)
+	normalRan := make(chan struct{})
+	Handle[PanicJob](w, func(_ context.Context, _ PanicJob) error {
+		panic("boom")
+	})
+	Handle[NormalJob](w, func(_ context.Context, _ NormalJob) error {
+		close(normalRan)
+		return nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	go w.Run(ctx)
+	defer w.Stop()
+
+	_ = Dispatch(ctx, q, PanicJob{ID: 1})
+	_ = Dispatch(ctx, q, NormalJob{ID: 2})
+
+	select {
+	case <-normalRan:
+	case <-time.After(3 * time.Second):
+		t.Fatal("worker died on panic; normal job never ran")
+	}
+}
+
+// TestWorker_OnFailedCalledOnExhaustion verifies the OnFailed hook fires
+// with the job and last error before a job is dropped.
+func TestWorker_OnFailedCalledOnExhaustion(t *testing.T) {
+	q := NewMemoryQueue()
+	failErr := errors.New("permanent")
+	failed := make(chan Job, 1)
+	var gotErr error
+	w := NewWorker(q).
+		Poll(10 * time.Millisecond).
+		Backoff(10 * time.Millisecond).
+		MaxRetry(2).
+		OnFailed(func(j Job, err error) {
+			gotErr = err
+			failed <- j
+		})
+	Handle[SendEmail](w, func(_ context.Context, _ SendEmail) error {
+		return failErr
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	go w.Run(ctx)
+	defer w.Stop()
+
+	_ = Dispatch(ctx, q, SendEmail{UserID: 5})
+	select {
+	case j := <-failed:
+		if j.Name != jobName(SendEmail{}) {
+			t.Fatalf("OnFailed got wrong job: %+v", j)
+		}
+		if !errors.Is(gotErr, failErr) {
+			t.Fatalf("OnFailed got err %v, want %v", gotErr, failErr)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("OnFailed never fired on retry exhaustion")
+	}
+}
+
+// TestWorker_StopWithoutRunReturnsQuickly ensures Stop does not deadlock
+// when Run was never started.
+func TestWorker_StopWithoutRunReturnsQuickly(t *testing.T) {
+	w := NewWorker(NewMemoryQueue())
+	done := make(chan struct{})
+	go func() {
+		w.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Stop deadlocked when Run was never started")
+	}
+}
+
+// TestWorker_Restartable ensures a Worker can be run again after Stop.
+func TestWorker_Restartable(t *testing.T) {
+	q := NewMemoryQueue()
+	w := NewWorker(q).Poll(10 * time.Millisecond)
+	runs := make(chan int, 2)
+	Handle[SendEmail](w, func(_ context.Context, p SendEmail) error {
+		runs <- int(p.UserID)
+		return nil
+	})
+
+	ctx := context.Background()
+	go w.Run(ctx)
+	_ = Dispatch(ctx, q, SendEmail{UserID: 1})
+	select {
+	case <-runs:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first run: handler never ran")
+	}
+	w.Stop()
+
+	// Restart.
+	go w.Run(ctx)
+	defer w.Stop()
+	_ = Dispatch(ctx, q, SendEmail{UserID: 2})
+	select {
+	case <-runs:
+	case <-time.After(2 * time.Second):
+		t.Fatal("after restart: handler never ran")
+	}
+}
+
+// TestBackoffMultiplier_NoOverflow guards the exponential backoff shift
+// against overflowing the Duration multiplication on high attempt counts.
+func TestBackoffMultiplier_NoOverflow(t *testing.T) {
+	if got := backoffMultiplier(0); got != 1 {
+		t.Fatalf("attempts=0 -> %d, want 1", got)
+	}
+	if got := backoffMultiplier(3); got != 8 {
+		t.Fatalf("attempts=3 -> %d, want 8", got)
+	}
+	// Way past the clamp — must not produce a negative/zero multiplier.
+	if got := backoffMultiplier(200); got <= 0 {
+		t.Fatalf("attempts=200 overflowed: %d", got)
+	}
+}

@@ -51,3 +51,41 @@ func TestForeignKey(t *testing.T) {
 		t.Errorf("ForeignKey(User) = %q, want user_id", got)
 	}
 }
+
+func TestPluralize_ZOSisExceptions(t *testing.T) {
+	cases := map[string]string{
+		"quiz":     "quizzes",
+		"hero":     "heroes",
+		"potato":   "potatoes",
+		"tomato":   "tomatoes",
+		"photo":    "photos", // not an exception: plain -s
+		"analysis": "analyses",
+		"basis":    "bases",
+	}
+	for in, want := range cases {
+		if got := Pluralize(in); got != want {
+			t.Errorf("Pluralize(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSingularize_SesVesExceptions(t *testing.T) {
+	cases := map[string]string{
+		"buses":      "bus",
+		"statuses":   "status",
+		"knives":     "knife",
+		"lives":      "life",
+		"wives":      "wife",
+		"wolves":     "wolf",
+		"leaves":     "leaf",
+		"quizzes":    "quiz",
+		"heroes":     "hero",
+		"analyses":   "analysis",
+		"categories": "category",
+	}
+	for in, want := range cases {
+		if got := Singularize(in); got != want {
+			t.Errorf("Singularize(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package httpclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -165,5 +166,47 @@ func TestNoBaseURL_RelativePathErrors(t *testing.T) {
 	_, err := New().Get(context.Background(), "/x")
 	if err == nil {
 		t.Fatal("relative path without BaseURL must error")
+	}
+}
+
+func TestMaxResponseBytes_RejectsOversizeBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(make([]byte, 1024))
+	}))
+	defer srv.Close()
+
+	_, err := New().BaseURL(srv.URL).MaxResponseBytes(512).Get(context.Background(), "/")
+	if !errors.Is(err, ErrResponseTooLarge) {
+		t.Fatalf("want ErrResponseTooLarge, got %v", err)
+	}
+}
+
+func TestMaxResponseBytes_AllowsBodyAtLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(make([]byte, 512))
+	}))
+	defer srv.Close()
+
+	resp, err := New().BaseURL(srv.URL).MaxResponseBytes(512).Get(context.Background(), "/")
+	if err != nil {
+		t.Fatalf("body exactly at limit must succeed, got %v", err)
+	}
+	if len(resp.Body()) != 512 {
+		t.Fatalf("body len = %d, want 512", len(resp.Body()))
+	}
+}
+
+func TestMaxResponseBytes_OptOutDisablesCap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(make([]byte, 4096))
+	}))
+	defer srv.Close()
+
+	resp, err := New().BaseURL(srv.URL).MaxResponseBytes(0).Get(context.Background(), "/")
+	if err != nil {
+		t.Fatalf("opt-out (0) must disable cap, got %v", err)
+	}
+	if len(resp.Body()) != 4096 {
+		t.Fatalf("body len = %d, want 4096", len(resp.Body()))
 	}
 }

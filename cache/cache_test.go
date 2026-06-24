@@ -126,6 +126,71 @@ func TestPull_ReturnsAndRemoves(t *testing.T) {
 	}
 }
 
+func TestMemory_NegativeTTLIsMiss(t *testing.T) {
+	// Regression: a negative TTL must behave like "already expired" — the
+	// key must not be stored as forever and must read as a miss.
+	ctx := context.Background()
+	c := NewMemory()
+	defer c.Close()
+	if err := c.Put(ctx, "k", []byte("v"), -time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok, err := c.Get(ctx, "k"); ok || v != nil || err != nil {
+		t.Fatalf("negative-TTL Get = (%q, %v, %v); want miss", v, ok, err)
+	}
+	// And it must clear any pre-existing value, not leave it forever.
+	if err := c.Put(ctx, "k2", []byte("keep"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Put(ctx, "k2", []byte("gone"), -time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := c.Has(ctx, "k2"); ok {
+		t.Fatal("negative-TTL Put must remove existing key")
+	}
+}
+
+func TestMemory_ZeroTTLIsForever(t *testing.T) {
+	ctx := context.Background()
+	c := NewMemory()
+	defer c.Close()
+	_ = c.Put(ctx, "k", []byte("v"), 0)
+	if ok, _ := c.Has(ctx, "k"); !ok {
+		t.Fatal("ttl==0 must store forever")
+	}
+}
+
+func TestPull_AtomicSingleWinner(t *testing.T) {
+	// With *Memory's atomic Pull, exactly one concurrent Pull of the same
+	// key may observe the value (-race must stay clean).
+	ctx := context.Background()
+	c := NewMemory()
+	defer c.Close()
+	const n = 64
+	_ = c.Put(ctx, "once", []byte("v"), 0)
+
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		hits int
+	)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, ok, _ := Pull(ctx, c, "once"); ok {
+				mu.Lock()
+				hits++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if hits != 1 {
+		t.Fatalf("atomic Pull winners = %d; want 1", hits)
+	}
+}
+
 func TestMemory_ConcurrentSafe(t *testing.T) {
 	ctx := context.Background()
 	c := NewMemory()

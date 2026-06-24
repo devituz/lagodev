@@ -41,7 +41,9 @@ type Store interface {
 	// error. An expired entry behaves like a miss (ok=false, err=nil).
 	Get(ctx context.Context, key string) ([]byte, bool, error)
 	// Put stores value under key with the given TTL. ttl==0 means store
-	// without expiry (until explicit Forget / Flush).
+	// without expiry (until explicit Forget / Flush); ttl<0 means the
+	// entry is already expired and is treated as an immediate miss (the
+	// key is removed rather than stored).
 	Put(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	// Forget removes the key (no error if missing).
 	Forget(ctx context.Context, key string) error
@@ -108,6 +110,14 @@ func (m *Memory) Get(_ context.Context, key string) ([]byte, bool, error) {
 }
 
 func (m *Memory) Put(_ context.Context, key string, value []byte, ttl time.Duration) error {
+	// A negative TTL means the entry is already expired: don't store it,
+	// and drop any existing value so the key reads as a miss.
+	if ttl < 0 {
+		m.mu.Lock()
+		delete(m.items, key)
+		m.mu.Unlock()
+		return nil
+	}
 	stored := make([]byte, len(value))
 	copy(stored, value)
 	var exp time.Time
@@ -137,6 +147,25 @@ func (m *Memory) Flush(_ context.Context) error {
 func (m *Memory) Has(ctx context.Context, key string) (bool, error) {
 	_, ok, err := m.Get(ctx, key)
 	return ok, err
+}
+
+// Pull returns the value for key and removes it in a single critical
+// section, so a concurrent Pull of the same key can succeed at most
+// once. Returns (nil, false, nil) on miss or expiry.
+func (m *Memory) Pull(_ context.Context, key string) ([]byte, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	it, ok := m.items[key]
+	if !ok {
+		return nil, false, nil
+	}
+	delete(m.items, key)
+	if !it.expiresAt.IsZero() && time.Now().After(it.expiresAt) {
+		return nil, false, nil
+	}
+	out := make([]byte, len(it.value))
+	copy(out, it.value)
+	return out, true, nil
 }
 
 func (m *Memory) sweep() {
@@ -181,9 +210,21 @@ func Remember(ctx context.Context, s Store, key string, ttl time.Duration, fn fu
 	return v, nil
 }
 
-// Pull reads a key and removes it atomically. Returns (nil, false, nil)
-// on miss.
+// puller is an optional Store extension that reads-and-deletes a key in
+// a single atomic operation. *Memory implements it.
+type puller interface {
+	Pull(ctx context.Context, key string) ([]byte, bool, error)
+}
+
+// Pull reads a key and removes it. If the underlying store implements
+// puller (e.g. *Memory) the read-and-delete is atomic; otherwise it
+// falls back to a non-atomic Get followed by Forget, which may race with
+// a concurrent Pull/Put of the same key. Returns (nil, false, nil) on
+// miss.
 func Pull(ctx context.Context, s Store, key string) ([]byte, bool, error) {
+	if p, ok := s.(puller); ok {
+		return p.Pull(ctx, key)
+	}
 	v, ok, err := s.Get(ctx, key)
 	if err != nil || !ok {
 		return nil, ok, err

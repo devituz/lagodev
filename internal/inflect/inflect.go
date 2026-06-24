@@ -144,19 +144,48 @@ func Pluralize(word string) string {
 	switch {
 	case strings.HasSuffix(lower, "y") && len(lower) > 1 && !isVowel(rune(lower[len(lower)-2])):
 		return word[:len(word)-1] + "ies"
+	case strings.HasSuffix(lower, "sis"):
+		// analysis -> analyses, basis -> bases.
+		return word[:len(word)-3] + "ses"
+	case strings.HasSuffix(lower, "z"):
+		// quiz -> quizzes: double the trailing z before -es.
+		return word + "zes"
 	case strings.HasSuffix(lower, "s"),
 		strings.HasSuffix(lower, "x"),
-		strings.HasSuffix(lower, "z"),
 		strings.HasSuffix(lower, "ch"),
 		strings.HasSuffix(lower, "sh"):
 		return word + "es"
-	case strings.HasSuffix(lower, "f"):
-		return word[:len(word)-1] + "ves"
+	case strings.HasSuffix(lower, "o"):
+		if _, ok := oExceptions[lower]; ok {
+			return word + "es"
+		}
+		return word + "s"
 	case strings.HasSuffix(lower, "fe"):
 		return word[:len(word)-2] + "ves"
+	case strings.HasSuffix(lower, "f"):
+		return word[:len(word)-1] + "ves"
 	default:
 		return word + "s"
 	}
+}
+
+// oExceptions are -o words that pluralize with -oes rather than -os.
+var oExceptions = map[string]struct{}{
+	"hero":    {},
+	"potato":  {},
+	"tomato":  {},
+	"echo":    {},
+	"veto":    {},
+	"buffalo": {},
+	"mango":   {},
+}
+
+// vesToFe lists -ves plurals whose singular ends in -fe (knife/life/wife),
+// distinguishing them from -f singulars (wolf/leaf -> wolves/leaves).
+var vesToFe = map[string]struct{}{
+	"knive": {},
+	"live":  {},
+	"wive":  {},
 }
 
 // Singularize returns the singular form of word (best-effort).
@@ -183,11 +212,38 @@ func Singularize(word string) string {
 	case strings.HasSuffix(lower, "ies") && len(lower) > 3:
 		return word[:len(word)-3] + "y"
 	case strings.HasSuffix(lower, "ves") && len(lower) > 3:
+		// knives/lives/wives -> knife/life/wife; wolves/leaves -> wolf/leaf.
+		stem := lower[:len(lower)-1] // drop trailing "s" -> "...ve"
+		if _, ok := vesToFe[stem]; ok {
+			return word[:len(word)-3] + "fe"
+		}
 		return word[:len(word)-3] + "f"
+	case strings.HasSuffix(lower, "ses") && len(lower) > 3:
+		// analyses -> analysis, bases -> basis.
+		if strings.HasSuffix(lower, "yses") {
+			return word[:len(word)-4] + "ysis"
+		}
+		// buses -> bus, statuses -> status: stems ending in s/x/z/us keep
+		// their final consonant; only the "-es" is removed.
+		stem := lower[:len(lower)-2]
+		if strings.HasSuffix(stem, "s") || strings.HasSuffix(stem, "x") ||
+			strings.HasSuffix(stem, "z") || strings.HasSuffix(stem, "us") {
+			return word[:len(word)-2]
+		}
+		return word[:len(word)-1]
+	case strings.HasSuffix(lower, "zzes"):
+		// quizzes -> quiz.
+		return word[:len(word)-3]
 	case strings.HasSuffix(lower, "es") && (strings.HasSuffix(lower, "ches") ||
 		strings.HasSuffix(lower, "shes") || strings.HasSuffix(lower, "xes") ||
 		strings.HasSuffix(lower, "zes") || strings.HasSuffix(lower, "sses")):
 		return word[:len(word)-2]
+	case strings.HasSuffix(lower, "oes") && len(lower) > 3:
+		// heroes/potatoes/tomatoes -> hero/potato/tomato.
+		if _, ok := oExceptions[lower[:len(lower)-2]]; ok {
+			return word[:len(word)-2]
+		}
+		return word[:len(word)-1]
 	case strings.HasSuffix(lower, "s") && !strings.HasSuffix(lower, "ss"):
 		return word[:len(word)-1]
 	default:

@@ -150,9 +150,9 @@ func DecryptString(key []byte, encoded string) (string, error) {
 	return string(b), nil
 }
 
-// Sign computes HMAC-SHA256 of data with the given key and returns
-// the lowercase hex signature. Useful for stateless tokens like
-// password-reset links or signed URLs.
+// Sign computes HMAC-SHA256 of data with the given key and returns the
+// signature as an unpadded base64url string (base64.RawURLEncoding).
+// Useful for stateless tokens like password-reset links or signed URLs.
 func Sign(key, data []byte) string {
 	mac := hmac.New(sha256.New, key)
 	mac.Write(data)

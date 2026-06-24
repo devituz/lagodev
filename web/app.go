@@ -30,6 +30,7 @@ type App struct {
 	addr       string
 	timeout    time.Duration
 	logger     *log.Logger
+	noDefaults bool
 	mu         sync.Mutex
 }
 
@@ -67,8 +68,16 @@ func WithShutdownTimeout(d time.Duration) Option {
 	return func(a *App) { a.timeout = d }
 }
 
+// WithoutDefaultMiddleware — New() avtomat qo'shadigan Logger + Recovery
+// middleware'larni o'chiradi. Foydalanuvchi o'z stack'ini Use() bilan
+// quradi.
+func WithoutDefaultMiddleware() Option {
+	return func(a *App) { a.noDefaults = true }
+}
+
 // New — yangi App yaratadi va kerakli o'rta dasturlarni standart qilib
-// qo'shadi (Logger + Recovery). Disable qilish uchun Reset() chaqiring.
+// qo'shadi (Logger + Recovery). Default middleware'ni o'chirish uchun
+// WithoutDefaultMiddleware() option'ini bering.
 func New(opts ...Option) *App {
 	a := &App{
 		Router:  newRouter(),
@@ -79,8 +88,10 @@ func New(opts ...Option) *App {
 	for _, o := range opts {
 		o(a)
 	}
-	// Standart middleware'lar
-	a.Use(Logger(a.logger), Recovery(a.logger))
+	// Standart middleware'lar (WithoutDefaultMiddleware bilan o'chiriladi)
+	if !a.noDefaults {
+		a.Use(Logger(a.logger), Recovery(a.logger))
+	}
 	return a
 }
 
@@ -101,15 +112,16 @@ func (a *App) Run(addr ...string) error {
 		}
 	}
 
-	// 2. Marshrutlarni ServeMux'ga yozamiz. Handler (any, error) qaytaradi —
-	//    ctx.respond ularni HTTP javobiga aylantiradi (Laravel uslubi).
+	// 2. Marshrutlarni ServeMux'ga yozamiz. Handler chain ichida respond()
+	//    eng ichki qatlam sifatida ishlaydi (web/router.go withRespond) —
+	//    shu sababli Logger kabi middleware'lar haqiqiy status/byte'ni
+	//    ko'radi. Bu yerda faqat Context yaratamiz va chain'ni chaqiramiz.
 	mux := http.NewServeMux()
 	for _, rt := range a.Routes() {
 		method, path, h := rt.Method, rt.Path, rt.Handler
 		mux.HandleFunc(method+" "+path, func(w http.ResponseWriter, r *http.Request) {
 			ctx := newContext(w, r, a.conn)
-			value, err := h(ctx)
-			ctx.respond(value, err)
+			_, _ = h(ctx)
 		})
 	}
 

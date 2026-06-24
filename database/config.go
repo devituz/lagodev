@@ -109,8 +109,11 @@ func (c Config) buildSQLiteDSN() string {
 		base = appendQueryParam(base, "_loc", sqliteLocation(c.TimeZone))
 	}
 	if !strings.Contains(base, "parseTime=") && !strings.Contains(base, "_time_format=") {
-		// mattn/go-sqlite3 parses timestamps when the column type contains
-		// "DATE" or "TIME" — explicit parameter avoids surprises.
+		// NOTE: mattn/go-sqlite3 has no "_time_format" DSN parameter — it
+		// ignores unknown params, so this is effectively a hint only. The
+		// actual time-zone handling is done by "_loc" set above; mattn parses
+		// columns whose declared type contains "DATE"/"TIMESTAMP" and applies
+		// _loc to the result. Kept for forward-compat / readability.
 		base = appendQueryParam(base, "_time_format", "sqlite")
 	}
 	return base

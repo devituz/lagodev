@@ -112,11 +112,10 @@ func (Grammar) CompileType(kind string, opts database.ColumnTypeOptions) string 
 		return "DATETIME"
 	case "time":
 		return "TIME"
-	case "enum":
-		// SQLite has no ENUM; emulate with TEXT + CHECK (omitted here, can be
-		// added in a follow-up index emission if needed).
-		return "TEXT"
-	case "set":
+	case "enum", "set":
+		// SQLite has no ENUM/SET; emulate with TEXT. The schema compiler emits a
+		// table-level CHECK constraint constraining the column to the declared
+		// values.
 		return "TEXT"
 	case "ipAddress":
 		return "VARCHAR(45)"

@@ -4,11 +4,11 @@
 // Three pieces:
 //
 //   - Job          — a payload that describes the work to do, carried as
-//                    a name + bytes (typed via Register/Marshal).
+//     a name + bytes (typed via Register/Marshal).
 //   - Queue        — the transport (push/pop/ack/nack). Memory driver
-//                    ships in-box; DB/Redis live in sub-packages.
+//     ships in-box; DB/Redis live in sub-packages.
 //   - Worker       — long-running consumer that pulls Jobs off a Queue
-//                    and dispatches them to registered Handler funcs.
+//     and dispatches them to registered Handler funcs.
 //
 // Usage:
 //
@@ -43,10 +43,10 @@ var ErrEmpty = errors.New("queue: empty")
 // queue transport. Name identifies the handler; Payload carries the
 // JSON-encoded user-defined struct.
 type Job struct {
-	ID         string
-	Name       string
-	Payload    []byte
-	Attempts   int
+	ID          string
+	Name        string
+	Payload     []byte
+	Attempts    int
 	AvailableAt time.Time
 }
 
@@ -123,15 +123,19 @@ type Handler func(ctx context.Context, raw []byte) error
 // Worker pulls jobs off a Queue and dispatches them to registered
 // handlers.
 type Worker struct {
-	q         Queue
-	mu        sync.RWMutex
-	handlers  map[string]Handler
-	maxRetry  int
-	backoff   time.Duration
-	logger    func(string, ...any)
-	poll      time.Duration
-	stop      chan struct{}
-	stopped   chan struct{}
+	q        Queue
+	mu       sync.RWMutex
+	handlers map[string]Handler
+	maxRetry int
+	backoff  time.Duration
+	logger   func(string, ...any)
+	onFailed func(j Job, err error)
+	poll     time.Duration
+
+	runMu   sync.Mutex // guards stop/stopped lifecycle
+	running bool
+	stop    chan struct{}
+	stopped chan struct{}
 }
 
 // NewWorker returns a Worker bound to q. Defaults: 3 max attempts,
@@ -164,6 +168,11 @@ func (w *Worker) Poll(d time.Duration) *Worker { w.poll = d; return w }
 // Logger installs a structured logger callback.
 func (w *Worker) Logger(fn func(string, ...any)) *Worker { w.logger = fn; return w }
 
+// OnFailed registers a callback invoked when a job exhausts its retries
+// and is about to be dropped. Use it for dead-letter persistence,
+// alerting, or metrics. fn receives the job and the last error.
+func (w *Worker) OnFailed(fn func(j Job, err error)) *Worker { w.onFailed = fn; return w }
+
 // Handle registers a typed handler for jobs of T. T must JSON-decode
 // from the payload bytes.
 func Handle[T any](w *Worker, fn func(ctx context.Context, payload T) error) {
@@ -183,12 +192,32 @@ func Handle[T any](w *Worker, fn func(ctx context.Context, payload T) error) {
 // Run blocks the calling goroutine, pulling jobs until ctx is cancelled
 // or Stop is called.
 func (w *Worker) Run(ctx context.Context) error {
-	defer close(w.stopped)
+	// Mark running and refresh the lifecycle channels so the Worker can be
+	// restarted after a previous Stop.
+	w.runMu.Lock()
+	w.running = true
+	select {
+	case <-w.stop:
+		// previous Stop closed it — recreate for this run
+		w.stop = make(chan struct{})
+		w.stopped = make(chan struct{})
+	default:
+	}
+	stop := w.stop
+	stopped := w.stopped
+	w.runMu.Unlock()
+
+	defer func() {
+		w.runMu.Lock()
+		w.running = false
+		w.runMu.Unlock()
+		close(stopped)
+	}()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-w.stop:
+		case <-stop:
 			return nil
 		default:
 		}
@@ -207,14 +236,24 @@ func (w *Worker) Run(ctx context.Context) error {
 	}
 }
 
-// Stop signals Run to exit. Blocks until Run returns.
+// Stop signals Run to exit and blocks until Run returns. If Run was
+// never started it returns promptly instead of deadlocking on the
+// stopped channel.
 func (w *Worker) Stop() {
+	w.runMu.Lock()
+	running := w.running
 	select {
 	case <-w.stop:
 	default:
 		close(w.stop)
 	}
-	<-w.stopped
+	stopped := w.stopped
+	w.runMu.Unlock()
+
+	if !running {
+		return
+	}
+	<-stopped
 }
 
 func (w *Worker) handle(ctx context.Context, j Job) {
@@ -226,19 +265,51 @@ func (w *Worker) handle(ctx context.Context, j Job) {
 		_ = w.q.Ack(ctx, j.ID)
 		return
 	}
-	err := h(ctx, j.Payload)
+	err := w.invoke(ctx, h, j.Payload)
 	if err == nil {
 		_ = w.q.Ack(ctx, j.ID)
 		return
 	}
 	if j.Attempts+1 >= w.maxRetry {
 		w.logger("queue: %s exhausted retries: %v", j.ID, err)
+		if w.onFailed != nil {
+			w.onFailed(j, err)
+		}
 		_ = w.q.Ack(ctx, j.ID) // drop
 		return
 	}
-	delay := w.backoff * time.Duration(1<<j.Attempts) // exponential
+	delay := w.backoff * backoffMultiplier(j.Attempts) // exponential
 	w.logger("queue: %s attempt %d failed: %v (retry in %s)", j.ID, j.Attempts+1, err, delay)
 	_ = w.q.Nack(ctx, j.ID, delay)
+}
+
+// invoke runs the handler, converting a panic into an error so a single
+// panicking job cannot take down the worker goroutine. The error then
+// flows through the normal Nack/retry path.
+func (w *Worker) invoke(ctx context.Context, h Handler, payload []byte) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				err = fmt.Errorf("queue: handler panic: %w", e)
+			} else {
+				err = fmt.Errorf("queue: handler panic: %v", r)
+			}
+		}
+	}()
+	return h(ctx, payload)
+}
+
+// backoffMultiplier returns 2^attempts, clamped to avoid overflowing the
+// time.Duration multiplication on a job that has been retried many times.
+func backoffMultiplier(attempts int) time.Duration {
+	const maxShift = 16 // 2^16 = 65536x the base backoff is plenty
+	if attempts < 0 {
+		attempts = 0
+	}
+	if attempts > maxShift {
+		attempts = maxShift
+	}
+	return time.Duration(1) << uint(attempts)
 }
 
 // --- MemoryQueue --------------------------------------------------------

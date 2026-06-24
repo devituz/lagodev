@@ -109,34 +109,48 @@ func (b *Blueprint) UUID(name string) *Column {
 
 // ---------------------- Integers ----------------------
 
+// BigInteger adds a 64-bit signed integer column.
 func (b *Blueprint) BigInteger(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindBigInteger})
 }
+
+// Integer adds a 32-bit signed integer column.
 func (b *Blueprint) Integer(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindInteger})
 }
+
+// SmallInteger adds a 16-bit signed integer column.
 func (b *Blueprint) SmallInteger(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindSmallInteger})
 }
+
+// TinyInteger adds an 8-bit signed integer column.
 func (b *Blueprint) TinyInteger(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindTinyInteger})
 }
 
+// UnsignedBigInteger adds a 64-bit unsigned integer column.
 func (b *Blueprint) UnsignedBigInteger(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindUnsignedBig, UnsignedV: true})
 }
 
+// UnsignedInteger adds a 32-bit unsigned integer column.
 func (b *Blueprint) UnsignedInteger(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindUnsignedInt, UnsignedV: true})
 }
 
 // ---------------------- Floats / Decimal ----------------------
 
+// Float adds a single-precision floating-point column.
 func (b *Blueprint) Float(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindFloat}) }
+
+// Double adds a double-precision floating-point column.
 func (b *Blueprint) Double(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindDouble})
 }
 
+// Decimal adds a fixed-point decimal column. Precision and scale default to
+// (8, 2) and may be overridden via the optional precisionScale arguments.
 func (b *Blueprint) Decimal(name string, precisionScale ...int) *Column {
 	c := &Column{Name: name, Kind: KindDecimal, Precision: 8, Scale: 2}
 	if len(precisionScale) > 0 {
@@ -166,35 +180,56 @@ func (b *Blueprint) Char(name string, length ...int) *Column {
 	return b.addCol(c)
 }
 
+// Text adds a variable-length text column.
 func (b *Blueprint) Text(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindText}) }
+
+// MediumText adds a medium-length text column (MySQL MEDIUMTEXT).
 func (b *Blueprint) MediumText(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindMediumText})
 }
+
+// LongText adds a long text column (MySQL LONGTEXT).
 func (b *Blueprint) LongText(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindLongText})
 }
+
+// Binary adds a binary blob column.
 func (b *Blueprint) Binary(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindBinary})
 }
 
 // ---------------------- Booleans / JSON ----------------------
 
+// Boolean adds a boolean column.
 func (b *Blueprint) Boolean(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindBoolean})
 }
-func (b *Blueprint) JSON(name string) *Column  { return b.addCol(&Column{Name: name, Kind: KindJSON}) }
+
+// JSON adds a JSON column.
+func (b *Blueprint) JSON(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindJSON}) }
+
+// JSONB adds a binary JSON column (Postgres JSONB).
 func (b *Blueprint) JSONB(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindJSONB}) }
 
 // ---------------------- Dates / times ----------------------
 
+// Date adds a date-only column.
 func (b *Blueprint) Date(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindDate}) }
+
+// DateTime adds a date-and-time column.
 func (b *Blueprint) DateTime(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindDateTime})
 }
+
+// Time adds a time-only column.
 func (b *Blueprint) Time(name string) *Column { return b.addCol(&Column{Name: name, Kind: KindTime}) }
+
+// Timestamp adds a timestamp column.
 func (b *Blueprint) Timestamp(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindTimestamp})
 }
+
+// TimestampTz adds a timestamp-with-time-zone column.
 func (b *Blueprint) TimestampTz(name string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindTimestampTZ})
 }
@@ -213,10 +248,15 @@ func (b *Blueprint) TimestampsTz() {
 
 // ---------------------- Enum / Set ----------------------
 
+// Enum adds an enumerated string column constrained to the allowed values.
+// MySQL uses a native ENUM; other dialects store a string with a CHECK
+// constraint.
 func (b *Blueprint) Enum(name string, allowed ...string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindEnum, Allowed: append([]string(nil), allowed...)})
 }
 
+// Set adds a set column. MySQL uses a native SET; other dialects store text
+// with a CHECK constraint.
 func (b *Blueprint) Set(name string, allowed ...string) *Column {
 	return b.addCol(&Column{Name: name, Kind: KindSet, Allowed: append([]string(nil), allowed...)})
 }
@@ -311,9 +351,7 @@ const (
 	CmdDropColumn   CommandType = "dropColumn"
 	CmdRenameColumn CommandType = "renameColumn"
 	CmdDropIndex    CommandType = "dropIndex"
-	CmdDropUnique   CommandType = "dropUnique"
 	CmdDropForeign  CommandType = "dropForeign"
-	CmdDropPrimary  CommandType = "dropPrimary"
 	CmdRenameTable  CommandType = "renameTable"
 )
 

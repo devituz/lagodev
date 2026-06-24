@@ -119,3 +119,32 @@ func TestSelectAggregateExpressionsPassThrough(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, sql, "COUNT(*) AS total")
 }
+
+// Bug 4: an injection payload in the ORDER BY direction must be rejected, not
+// concatenated into the SQL.
+func TestOrderBy_RejectsDirectionInjection(t *testing.T) {
+	b := query.New(conn(sqlite.Grammar{}), "users")
+	assert.Panics(t, func() {
+		b.OrderBy("name", "desc; DROP TABLE users")
+	})
+}
+
+func TestOrderBy_NormalizesDirection(t *testing.T) {
+	b := query.New(conn(sqlite.Grammar{}), "users").OrderBy("name", "desc")
+	sql, _, err := b.ToSQL()
+	require.NoError(t, err)
+	assert.Equal(t, `SELECT * FROM "users" ORDER BY "name" DESC`, sql)
+
+	b2 := query.New(conn(sqlite.Grammar{}), "users").OrderBy("name", "")
+	sql2, _, err := b2.ToSQL()
+	require.NoError(t, err)
+	assert.Equal(t, `SELECT * FROM "users" ORDER BY "name" ASC`, sql2)
+}
+
+// SQLite has no FOR UPDATE/FOR SHARE; the lock clause must be suppressed.
+func TestLock_NoopOnSQLite(t *testing.T) {
+	b := query.New(conn(sqlite.Grammar{}), "users").LockForUpdate()
+	sql, _, err := b.ToSQL()
+	require.NoError(t, err)
+	assert.NotContains(t, sql, "FOR UPDATE")
+}

@@ -95,12 +95,25 @@ func New(cfg Config) (*Disk, error) {
 // Static compile-time assertion: *Disk satisfies filesystem.Disk.
 var _ filesystem.Disk = (*Disk)(nil)
 
-func (d *Disk) keyFor(p string) string {
+// keyFor maps a caller path to an object key, applying the configured
+// prefix. It enforces the same no-traversal contract as the Local
+// driver: absolute paths and any ".." segment are rejected with
+// filesystem.ErrPathTraversal rather than silently cleaned, so a key
+// can never escape the configured prefix.
+func (d *Disk) keyFor(p string) (string, error) {
+	if path.IsAbs(p) {
+		return "", filesystem.ErrPathTraversal
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == ".." {
+			return "", filesystem.ErrPathTraversal
+		}
+	}
 	clean := strings.TrimLeft(path.Clean(p), "/")
 	if d.prefix == "" {
-		return clean
+		return clean, nil
 	}
-	return d.prefix + "/" + clean
+	return d.prefix + "/" + clean, nil
 }
 
 func (d *Disk) Put(ctx context.Context, p string, data []byte) error {
@@ -108,9 +121,12 @@ func (d *Disk) Put(ctx context.Context, p string, data []byte) error {
 }
 
 func (d *Disk) PutStream(ctx context.Context, p string, r io.Reader) error {
-	key := d.keyFor(p)
+	key, err := d.keyFor(p)
+	if err != nil {
+		return err
+	}
 	// Size unknown → use -1, minio streams in 5 MiB parts.
-	_, err := d.cli.PutObject(ctx, d.bucket, key, r, -1, minio.PutObjectOptions{
+	_, err = d.cli.PutObject(ctx, d.bucket, key, r, -1, minio.PutObjectOptions{
 		ContentType: "application/octet-stream",
 	})
 	if err != nil {
@@ -129,7 +145,10 @@ func (d *Disk) Get(ctx context.Context, p string) ([]byte, error) {
 }
 
 func (d *Disk) Reader(ctx context.Context, p string) (io.ReadCloser, error) {
-	key := d.keyFor(p)
+	key, err := d.keyFor(p)
+	if err != nil {
+		return nil, err
+	}
 	obj, err := d.cli.GetObject(ctx, d.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("s3: get %s: %w", key, err)
@@ -147,7 +166,11 @@ func (d *Disk) Reader(ctx context.Context, p string) (io.ReadCloser, error) {
 }
 
 func (d *Disk) Exists(ctx context.Context, p string) (bool, error) {
-	_, err := d.cli.StatObject(ctx, d.bucket, d.keyFor(p), minio.StatObjectOptions{})
+	key, err := d.keyFor(p)
+	if err != nil {
+		return false, err
+	}
+	_, err = d.cli.StatObject(ctx, d.bucket, key, minio.StatObjectOptions{})
 	if err == nil {
 		return true, nil
 	}
@@ -158,7 +181,11 @@ func (d *Disk) Exists(ctx context.Context, p string) (bool, error) {
 }
 
 func (d *Disk) Delete(ctx context.Context, p string) error {
-	err := d.cli.RemoveObject(ctx, d.bucket, d.keyFor(p), minio.RemoveObjectOptions{})
+	key, err := d.keyFor(p)
+	if err != nil {
+		return err
+	}
+	err = d.cli.RemoveObject(ctx, d.bucket, key, minio.RemoveObjectOptions{})
 	if err != nil && !isNotFound(err) {
 		return fmt.Errorf("s3: delete: %w", err)
 	}
@@ -166,9 +193,15 @@ func (d *Disk) Delete(ctx context.Context, p string) error {
 }
 
 func (d *Disk) Copy(ctx context.Context, src, dst string) error {
-	srcKey := d.keyFor(src)
-	dstKey := d.keyFor(dst)
-	_, err := d.cli.CopyObject(ctx,
+	srcKey, err := d.keyFor(src)
+	if err != nil {
+		return err
+	}
+	dstKey, err := d.keyFor(dst)
+	if err != nil {
+		return err
+	}
+	_, err = d.cli.CopyObject(ctx,
 		minio.CopyDestOptions{Bucket: d.bucket, Object: dstKey},
 		minio.CopySrcOptions{Bucket: d.bucket, Object: srcKey},
 	)
@@ -189,7 +222,10 @@ func (d *Disk) Move(ctx context.Context, src, dst string) error {
 }
 
 func (d *Disk) Files(ctx context.Context, dir string) ([]filesystem.FileInfo, error) {
-	prefix := d.keyFor(dir)
+	prefix, err := d.keyFor(dir)
+	if err != nil {
+		return nil, err
+	}
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
@@ -217,7 +253,11 @@ func (d *Disk) Files(ctx context.Context, dir string) ([]filesystem.FileInfo, er
 }
 
 func (d *Disk) Stat(ctx context.Context, p string) (filesystem.FileInfo, error) {
-	info, err := d.cli.StatObject(ctx, d.bucket, d.keyFor(p), minio.StatObjectOptions{})
+	key, err := d.keyFor(p)
+	if err != nil {
+		return filesystem.FileInfo{}, err
+	}
+	info, err := d.cli.StatObject(ctx, d.bucket, key, minio.StatObjectOptions{})
 	if err != nil {
 		if isNotFound(err) {
 			return filesystem.FileInfo{}, filesystem.ErrNotFound

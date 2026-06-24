@@ -130,8 +130,15 @@ func buildForm(msg mail.Message) (io.Reader, string, error) {
 		defer pw.Close()
 		defer mw.Close()
 
+		// writeErr is set on the first WriteField failure; once set we
+		// stop and surface it via CloseWithError, mirroring the
+		// attachment path below.
+		var writeErr error
 		add := func(k, v string) {
-			_ = mw.WriteField(k, v)
+			if writeErr != nil {
+				return
+			}
+			writeErr = mw.WriteField(k, v)
 		}
 		add("from", msg.From)
 		for _, to := range msg.To {
@@ -156,6 +163,10 @@ func buildForm(msg mail.Message) (io.Reader, string, error) {
 		for k, v := range msg.Headers {
 			add("h:"+k, v)
 		}
+		if writeErr != nil {
+			_ = pw.CloseWithError(writeErr)
+			return
+		}
 		// Attachments: Mailgun expects form field "attachment".
 		for _, a := range msg.Attachments {
 			header := make(textproto.MIMEHeader)
@@ -175,4 +186,3 @@ func buildForm(msg mail.Message) (io.Reader, string, error) {
 	}()
 	return pr, mw.FormDataContentType(), nil
 }
-

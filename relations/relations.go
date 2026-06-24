@@ -157,12 +157,14 @@ func (r *Relation) loadHasOrMorph(ctx context.Context, parents []any, assign fun
 		return err
 	}
 
-	for parentKey, parent := range parentLookup {
+	for parentKey, group := range parentLookup {
 		bucket, ok := buckets[parentKey]
 		if !ok {
 			bucket = reflect.MakeSlice(sliceType, 0, 0)
 		}
-		assign(parent, bucket.Interface())
+		for _, parent := range group {
+			assign(parent, bucket.Interface())
+		}
 	}
 	return nil
 }
@@ -207,9 +209,11 @@ func (r *Relation) loadBelongsTo(ctx context.Context, parents []any, assign func
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for key, parent := range parentLookup {
+	for key, group := range parentLookup {
 		if c, ok := results[key]; ok {
-			assign(parent, c.Interface())
+			for _, parent := range group {
+				assign(parent, c.Interface())
+			}
 		}
 	}
 	return nil
@@ -280,12 +284,14 @@ func (r *Relation) loadBelongsToMany(ctx context.Context, parents []any, assign 
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for key, parent := range parentLookup {
+	for key, group := range parentLookup {
 		bucket, ok := buckets[key]
 		if !ok {
 			bucket = reflect.MakeSlice(sliceType, 0, 0)
 		}
-		assign(parent, bucket.Interface())
+		for _, parent := range group {
+			assign(parent, bucket.Interface())
+		}
 	}
 	return nil
 }
@@ -305,9 +311,15 @@ func childElemType(dst any) reflect.Type {
 	return t
 }
 
-func collectParentKeys(parents []any, col string) ([]any, map[any]any) {
+// collectParentKeys returns the distinct key values to query for and a lookup
+// from each key to ALL parents carrying that key. The lookup is a slice per
+// key because the key column may be non-unique across parents — most notably a
+// BelongsTo keyed by a shared foreign key, where several children point at the
+// same parent. Keying by a single parent would silently drop all but the last.
+func collectParentKeys(parents []any, col string) ([]any, map[any][]any) {
 	keys := make([]any, 0, len(parents))
-	lookup := make(map[any]any, len(parents))
+	seen := make(map[any]struct{}, len(parents))
+	lookup := make(map[any][]any, len(parents))
 	for _, p := range parents {
 		v := reflectutil.IndirectValue(reflect.ValueOf(p))
 		s := reflectutil.ParseType(v.Type())
@@ -316,8 +328,11 @@ func collectParentKeys(parents []any, col string) ([]any, map[any]any) {
 			continue
 		}
 		key := v.FieldByIndex(f.Index).Interface()
-		keys = append(keys, key)
-		lookup[key] = p
+		if _, ok := seen[key]; !ok {
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
+		lookup[key] = append(lookup[key], p)
 	}
 	return keys, lookup
 }
@@ -368,6 +383,10 @@ func BelongsToOf(conn *database.Connection, parent any, owner any, foreignKey st
 }
 
 // BelongsToManyOf builds a many-to-many relation through pivot table.
+//
+// NOTE: the related (child) key is currently hardcoded to "id" in the pivot
+// JOIN (see loadBelongsToMany); models whose primary key column is not "id"
+// are not yet supported by this relation.
 func BelongsToManyOf(conn *database.Connection, parent, children any, pivot, parentFK, relatedFK string) *Relation {
 	return &Relation{
 		Kind:           BelongsToMany,

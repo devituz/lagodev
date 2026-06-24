@@ -111,13 +111,30 @@ func (r *Router) Routes() []Route {
 
 func (r *Router) add(method, path string, h Handler) {
 	full := r.joinPath(path)
-	wrapped := h
+	// respond() must run as the INNERMOST layer — before middleware
+	// unwinds — so access loggers (Logger) observe the real status code
+	// and byte count for the `return value, nil` handler pattern. If
+	// respond ran outside the chain (after the outermost middleware
+	// returned), Logger would always log status=200 size=0.
+	wrapped := withRespond(h)
 	// Middleware'larni teskari tartibda o'raymiz — birinchi ro'yxatga
 	// olingan eng tashqi qatlam bo'ladi.
 	for i := len(r.middlewares) - 1; i >= 0; i-- {
 		wrapped = r.middlewares[i](wrapped)
 	}
 	r.routes = append(r.routes, Route{Method: method, Path: full, Handler: wrapped})
+}
+
+// withRespond wraps a leaf handler so its (value, err) result is written
+// to the response immediately, then returns (nil, nil) up the middleware
+// chain. This makes respond() the innermost layer so middleware wrapping
+// it (e.g. Logger) sees the committed status/bytes.
+func withRespond(h Handler) Handler {
+	return func(c *Context) (any, error) {
+		value, err := h(c)
+		c.respond(value, err)
+		return nil, nil
+	}
 }
 
 func (r *Router) joinPath(p string) string {

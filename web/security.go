@@ -29,8 +29,11 @@ type SecurityHeadersConfig struct {
 	// Set only when serving over HTTPS — otherwise clients lock onto a
 	// broken scheme.
 	HSTS string
-	// NoSniff toggles X-Content-Type-Options: nosniff (default true).
-	NoSniff bool
+	// DisableNoSniff turns OFF X-Content-Type-Options: nosniff. The header
+	// is sent by default (zero value); set this to true to opt out. The
+	// flag is inverted so a custom config that omits it does NOT silently
+	// drop the nosniff protection.
+	DisableNoSniff bool
 }
 
 func defaultSecurityHeaders() SecurityHeadersConfig {
@@ -39,7 +42,6 @@ func defaultSecurityHeaders() SecurityHeadersConfig {
 		FrameOptions:          "DENY",
 		ReferrerPolicy:        "strict-origin-when-cross-origin",
 		PermissionsPolicy:     "camera=(), microphone=(), geolocation=()",
-		NoSniff:               true,
 	}
 }
 
@@ -48,12 +50,10 @@ func defaultSecurityHeaders() SecurityHeadersConfig {
 func SecurityHeaders(cfg ...SecurityHeadersConfig) Middleware {
 	c := defaultSecurityHeaders()
 	if len(cfg) > 0 {
+		// Custom config: header-string fields default to "" (omit), but
+		// nosniff stays ON unless DisableNoSniff is explicitly set — so a
+		// caller overriding e.g. CSP does not accidentally drop nosniff.
 		c = cfg[0]
-		// NoSniff bool defaults to false on zero-value — treat the
-		// zero-value config as "use defaults" by checking NoSniff
-		// against an explicit-disable sentinel. To explicitly disable,
-		// pass an SecurityHeadersConfig with all empty fields AND
-		// NoSniff: false — that disables every header.
 	}
 	return func(next Handler) Handler {
 		return func(ctx *Context) (any, error) {
@@ -73,7 +73,7 @@ func SecurityHeaders(cfg ...SecurityHeadersConfig) Middleware {
 			if c.HSTS != "" {
 				h.Set("Strict-Transport-Security", c.HSTS)
 			}
-			if c.NoSniff {
+			if !c.DisableNoSniff {
 				h.Set("X-Content-Type-Options", "nosniff")
 			}
 			return next(ctx)

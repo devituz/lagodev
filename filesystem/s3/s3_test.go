@@ -36,7 +36,10 @@ func TestNew_DefaultRegion(t *testing.T) {
 
 func TestKeyFor_PrefixApplied(t *testing.T) {
 	d, _ := New(Config{Endpoint: "minio.local:9000", Bucket: "x", AccessKey: "k", SecretKey: "s", Prefix: "app/uploads"})
-	got := d.keyFor("users/42/avatar.png")
+	got, err := d.keyFor("users/42/avatar.png")
+	if err != nil {
+		t.Fatalf("keyFor: %v", err)
+	}
 	want := "app/uploads/users/42/avatar.png"
 	if got != want {
 		t.Fatalf("keyFor = %q, want %q", got, want)
@@ -45,8 +48,28 @@ func TestKeyFor_PrefixApplied(t *testing.T) {
 
 func TestKeyFor_NoPrefix(t *testing.T) {
 	d, _ := New(Config{Endpoint: "x:9000", Bucket: "x", AccessKey: "k", SecretKey: "s"})
-	if got := d.keyFor("/a/b.txt"); got != "a/b.txt" {
+	got, err := d.keyFor("a/b.txt")
+	if err != nil {
+		t.Fatalf("keyFor: %v", err)
+	}
+	if got != "a/b.txt" {
 		t.Fatalf("keyFor = %q", got)
+	}
+}
+
+func TestKeyFor_RejectsTraversal(t *testing.T) {
+	d, _ := New(Config{Endpoint: "x:9000", Bucket: "x", AccessKey: "k", SecretKey: "s", Prefix: "app"})
+	bad := []string{
+		"../etc/passwd",
+		"a/../../etc/passwd",
+		"/etc/passwd",
+		"..",
+		"a/..",
+	}
+	for _, p := range bad {
+		if _, err := d.keyFor(p); !errors.Is(err, filesystem.ErrPathTraversal) {
+			t.Fatalf("keyFor(%q) must return ErrPathTraversal, got %v", p, err)
+		}
 	}
 }
 

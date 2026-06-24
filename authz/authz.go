@@ -9,7 +9,7 @@
 //
 //     g := authz.New()
 //     authz.Define(g, "manage-billing", func(_ context.Context, u User, _ any) bool {
-//         return u.Role == "admin"
+//     return u.Role == "admin"
 //     })
 //     ok, _ := g.Allows(ctx, "manage-billing", currentUser, nil)
 //
@@ -120,10 +120,32 @@ func Policy[R any, U any](g *Gate[U], policy any) {
 // Allows reports whether user is permitted to perform ability on the
 // (optional) resource. Resource may be nil for gate-only abilities.
 func (g *Gate[U]) Allows(ctx context.Context, ability string, user U, resource any) (bool, error) {
+	// Hold the read lock while snapshotting beforeFns/gate AND while
+	// resolving the policy value, otherwise a concurrent Policy() write
+	// (under the write lock) races with the map read below.
 	g.mu.RLock()
 	beforeFns := append([]func(ctx context.Context, u U, ability string) bool{}, g.beforeFns...)
 	fn, hasGate := g.gates[ability]
-	policies := g.policies
+
+	// Resolve the policy (and the resource value to pass to it) while the
+	// lock is held; defer the actual Call until after RUnlock so user code
+	// never runs under our lock.
+	var (
+		policy    reflect.Value
+		hasPolicy bool
+		policyArg any
+	)
+	if !hasGate && resource != nil {
+		rt := reflect.TypeOf(resource)
+		if pv, ok := g.policies[rt]; ok {
+			policy, hasPolicy, policyArg = pv, true, resource
+		} else if rt.Kind() == reflect.Ptr {
+			// Indirect (pointer) lookup.
+			if pv, ok := g.policies[rt.Elem()]; ok {
+				policy, hasPolicy, policyArg = pv, true, reflect.ValueOf(resource).Elem().Interface()
+			}
+		}
+	}
 	g.mu.RUnlock()
 
 	for _, b := range beforeFns {
@@ -134,17 +156,8 @@ func (g *Gate[U]) Allows(ctx context.Context, ability string, user U, resource a
 	if hasGate {
 		return fn(ctx, user, resource), nil
 	}
-	if resource != nil {
-		rt := reflect.TypeOf(resource)
-		if pv, ok := policies[rt]; ok {
-			return invokePolicy(ctx, pv, ability, user, resource)
-		}
-		// Indirect (pointer) lookup
-		if rt.Kind() == reflect.Ptr {
-			if pv, ok := policies[rt.Elem()]; ok {
-				return invokePolicy(ctx, pv, ability, user, reflect.ValueOf(resource).Elem().Interface())
-			}
-		}
+	if hasPolicy {
+		return invokePolicy(ctx, policy, ability, user, policyArg)
 	}
 	return false, fmt.Errorf("%w: %q", ErrUnknownAbility, ability)
 }
@@ -190,37 +203,72 @@ func (g *Gate[U]) Check(ctx context.Context, ability string, user U, resource an
 func invokePolicy(ctx context.Context, policy reflect.Value, ability string, user, resource any) (bool, error) {
 	want := normaliseAbility(ability)
 	t := policy.Type()
+
+	ctxV := reflect.ValueOf(ctx)
+	userV := reflect.ValueOf(user)
+	resV := reflect.ValueOf(resource)
+
 	for i := 0; i < t.NumMethod(); i++ {
 		m := t.Method(i)
 		if normaliseAbility(m.Name) != want {
 			continue
 		}
-		// Validate signature: (receiver,) ctx, user, resource
+		// Validate the full signature before calling: a name match is not
+		// enough — the method's parameter and return types must line up with
+		// the runtime values, otherwise reflect.Call panics. A method that
+		// matches by name but not by shape is treated as a non-match so the
+		// gate ultimately returns ErrUnknownAbility instead of panicking.
 		mt := m.Func.Type()
+		// In(0) is the receiver; In(1..3) are ctx, user, resource.
 		if mt.NumIn() != 4 {
-			return false, fmt.Errorf("authz: policy method %s has wrong arity", m.Name)
+			continue
 		}
-		args := []reflect.Value{
-			policy,
-			reflect.ValueOf(ctx),
-			reflect.ValueOf(user),
-			reflect.ValueOf(resource),
+		if !assignable(resV, mt.In(3)) ||
+			!assignable(ctxV, mt.In(1)) ||
+			!assignable(userV, mt.In(2)) {
+			continue
 		}
-		out := m.Func.Call(args)
-		switch len(out) {
+		// Validate the return shape: bool, or (bool, error).
+		switch mt.NumOut() {
 		case 1:
-			return out[0].Bool(), nil
+			if mt.Out(0).Kind() != reflect.Bool {
+				continue
+			}
 		case 2:
+			if mt.Out(0).Kind() != reflect.Bool || !mt.Out(1).Implements(errorType) {
+				continue
+			}
+		default:
+			continue
+		}
+
+		args := []reflect.Value{policy, ctxV, userV, resV}
+		out := m.Func.Call(args)
+		if len(out) == 2 {
 			var err error
 			if !out[1].IsNil() {
 				err = out[1].Interface().(error)
 			}
 			return out[0].Bool(), err
-		default:
-			return false, fmt.Errorf("authz: policy method %s has unexpected return count", m.Name)
 		}
+		return out[0].Bool(), nil
 	}
 	return false, fmt.Errorf("%w: %q on %T", ErrUnknownAbility, ability, policy.Interface())
+}
+
+// errorType is the reflect.Type of the error interface, used to validate
+// that a policy method's second return value is an error.
+var errorType = reflect.TypeOf((*error)(nil)).Elem()
+
+// assignable reports whether value v can be passed as a parameter of type
+// want via reflect.Call. A nil value is representable as any interface-typed
+// parameter (the method gets a nil interface).
+func assignable(v reflect.Value, want reflect.Type) bool {
+	if !v.IsValid() {
+		// nil interface value: only valid for interface parameters.
+		return want.Kind() == reflect.Interface
+	}
+	return v.Type().AssignableTo(want)
 }
 
 func normaliseAbility(s string) string {

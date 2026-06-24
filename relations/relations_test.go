@@ -95,6 +95,35 @@ func TestBelongsTo_LoadsParent(t *testing.T) {
 	assert.Equal(t, "Grace", owner.Name)
 }
 
+// Bug 2: two children sharing the same author_id must BOTH receive the parent
+// after a batch BelongsTo load — the lookup must fan out over all parents
+// sharing a key, not keep only the last.
+func TestBelongsTo_LoadManySharedKey(t *testing.T) {
+	conn, cleanup := setup(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	a := &Author{Name: "Shared"}
+	require.NoError(t, orm.Save(ctx, conn, a))
+
+	b1 := &Book{AuthorID: a.ID, Title: "first"}
+	b2 := &Book{AuthorID: a.ID, Title: "second"}
+	require.NoError(t, orm.Save(ctx, conn, b1))
+	require.NoError(t, orm.Save(ctx, conn, b2))
+
+	owners := map[uint64]string{}
+	parents := []any{b1, b2}
+	rel := relations.BelongsToOf(conn, b1, &Author{}, "author_id")
+	require.NoError(t, rel.LoadMany(ctx, parents, func(parent any, child any) {
+		book := parent.(*Book)
+		author := child.(Author)
+		owners[book.ID] = author.Name
+	}))
+
+	assert.Equal(t, "Shared", owners[b1.ID])
+	assert.Equal(t, "Shared", owners[b2.ID], "second child sharing the FK must also get the parent")
+}
+
 func TestHasMany_LoadManyDistributesChildren(t *testing.T) {
 	conn, cleanup := setup(t)
 	defer cleanup()

@@ -90,3 +90,25 @@ func TestSeededFaker_Deterministic(t *testing.T) {
 	b := factory.NewSeeded(42)
 	assert.Equal(t, a.Name(), b.Name())
 }
+
+func TestNew_WithSeed_Reproducible(t *testing.T) {
+	build := func() []User {
+		return factory.New(nil, func(f *factory.Faker) User {
+			return User{Name: f.Name(), Email: f.Email()}
+		}, factory.WithSeed(99)).Count(3).Make()
+	}
+	a := build()
+	b := build()
+	require.Len(t, a, 3)
+	assert.Equal(t, a, b, "same seed must produce identical instances")
+}
+
+func TestNew_WithFaker(t *testing.T) {
+	f := factory.New(nil, func(f *factory.Faker) User {
+		return User{Name: f.Name()}
+	}, factory.WithFaker(factory.NewSeeded(7)))
+	g := factory.New(nil, func(f *factory.Faker) User {
+		return User{Name: f.Name()}
+	}, factory.WithFaker(factory.NewSeeded(7)))
+	assert.Equal(t, f.MakeOne().Name, g.MakeOne().Name)
+}

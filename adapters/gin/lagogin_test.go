@@ -440,3 +440,42 @@ func do(r http.Handler, method, path string, body interface{ Read([]byte) (int, 
 	r.ServeHTTP(w, req)
 	return w
 }
+
+// TestRegistryRecordsServedPaths asserts the route registry records the
+// gin-native path (`/users/:id`) that is actually served — not `/{id}` —
+// while OpenAPI() still converts to the spec-canonical `/users/{id}` with
+// an `id` path parameter. Regression for the registry/served mismatch.
+func TestRegistryRecordsServedPaths(t *testing.T) {
+	conn := newTestConn(t)
+	lagogin.ResetRoutes()
+
+	r := gin.New()
+	lagogin.Resource(r, "users", &userCtrl{Conn: conn})
+
+	foundColon := false
+	for _, rt := range lagogin.Routes() {
+		if rt.Path == "/users/:id" {
+			foundColon = true
+		}
+		if strings.Contains(rt.Path, "{id}") {
+			t.Fatalf("registry should record gin-native :id, got %q", rt.Path)
+		}
+	}
+	if !foundColon {
+		t.Fatalf("registry missing served path /users/:id: %+v", lagogin.Routes())
+	}
+
+	spec := lagogin.OpenAPI(lagogin.SpecInfo{Title: "t", Version: "v"})
+	paths := spec["paths"].(map[string]any)
+	idPath, ok := paths["/users/{id}"].(map[string]any)
+	if !ok {
+		t.Fatalf("OpenAPI must emit /users/{id}, got: %v", paths)
+	}
+	if _, ok := paths["/users/:id"]; ok {
+		t.Fatalf("OpenAPI leaked gin-native :id path: %v", paths)
+	}
+	show := idPath["get"].(map[string]any)
+	if _, ok := show["parameters"]; !ok {
+		t.Fatalf("OpenAPI /users/{id} GET missing id path parameter: %v", show)
+	}
+}

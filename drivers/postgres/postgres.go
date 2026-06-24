@@ -114,17 +114,12 @@ func (Grammar) CompileType(kind string, opts database.ColumnTypeOptions) string 
 	case "time":
 		return "TIME"
 	case "enum":
-		// Use CHECK constraint via VARCHAR to avoid creating server-side ENUM
-		// types (which complicate migrations). Compiler emits the CHECK
-		// elsewhere if needed; we restrict to declared values via CHECK.
-		quoted := make([]string, len(opts.Allowed))
-		for i, a := range opts.Allowed {
-			quoted[i] = "'" + strings.ReplaceAll(a, "'", "''") + "'"
-		}
-		if len(quoted) == 0 {
-			return "VARCHAR(255)"
-		}
-		return "VARCHAR(255) CHECK (VALUE IN (" + strings.Join(quoted, ", ") + "))"
+		// Use a plain VARCHAR to avoid creating server-side ENUM types (which
+		// complicate migrations). The schema compiler emits a table-level CHECK
+		// constraint constraining the column to the declared values — emitting a
+		// "VALUE IN (...)" CHECK here would be invalid because VALUE is only a
+		// CREATE DOMAIN keyword, not a column reference.
+		return "VARCHAR(255)"
 	case "set":
 		return "TEXT[]"
 	case "ipAddress":

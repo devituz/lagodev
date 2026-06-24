@@ -82,6 +82,11 @@ func (s *sessionWriter) flushSave() {
 		return
 	}
 	s.saved = true
+	// A destroyed session (logout) must not be resurrected: skip Save so
+	// no live cookie is re-issued and nothing is re-written to the store.
+	if s.sess.destroyed {
+		return
+	}
 	_ = s.sess.Save(s.ctx, s.ResponseWriter)
 }
 

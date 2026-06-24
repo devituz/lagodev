@@ -159,12 +159,14 @@ type task struct {
 
 // Runner orchestrates registered tasks.
 type Runner struct {
-	mu     sync.Mutex
-	tasks  []*task
-	tick   time.Duration
-	logger func(string, ...any)
-	now    func() time.Time
-	stop   chan struct{}
+	mu      sync.Mutex
+	tasks   []*task
+	tick    time.Duration
+	logger  func(string, ...any)
+	now     func() time.Time
+	stop    chan struct{}
+	wg      sync.WaitGroup // tracks in-flight fired tasks
+	running bool
 }
 
 // New returns a Runner ticking once per second.
@@ -201,24 +203,67 @@ func (r *Runner) Job(name string, schedule Schedule, fn TaskFn) {
 	})
 }
 
-// Run blocks until ctx is cancelled or Stop is called.
+// Run blocks until ctx is cancelled or Stop is called. Before returning
+// it waits for any tasks that have already fired to finish (graceful
+// drain). Fired tasks receive a context derived from ctx that is NOT
+// cancelled by Stop, so a Stop()ed Runner lets in-flight work complete;
+// only ctx cancellation cancels running tasks.
+//
+// Run is restartable: calling Run again after Stop starts a fresh cycle.
 func (r *Runner) Run(ctx context.Context) error {
-	ticker := time.NewTicker(r.tick)
-	defer ticker.Stop()
-	for {
+	// Refresh the stop channel so a Runner stopped earlier can run again.
+	r.mu.Lock()
+	select {
+	case <-r.stop:
+		r.stop = make(chan struct{})
+	default:
+	}
+	stop := r.stop
+	r.running = true
+	r.mu.Unlock()
+
+	// taskCtx is decoupled from Stop: fired tasks keep their context even
+	// while the Runner drains. It is still cancelled when the caller's ctx
+	// is cancelled.
+	taskCtx, cancelTasks := context.WithCancel(context.Background())
+	defer cancelTasks()
+	go func() {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-r.stop:
-			return nil
+			cancelTasks()
+		case <-taskCtx.Done():
+		}
+	}()
+
+	ticker := time.NewTicker(r.tick)
+	defer ticker.Stop()
+
+	var err error
+	for loop := true; loop; {
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+			loop = false
+		case <-stop:
+			loop = false
 		case now := <-ticker.C:
-			r.dispatch(ctx, now)
+			r.dispatch(taskCtx, now)
 		}
 	}
+
+	// Graceful drain: wait for already-fired tasks to finish.
+	r.wg.Wait()
+	r.mu.Lock()
+	r.running = false
+	r.mu.Unlock()
+	return err
 }
 
-// Stop signals Run to exit.
+// Stop signals Run to exit. It does not cancel tasks that have already
+// fired — Run drains them before returning.
 func (r *Runner) Stop() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	select {
 	case <-r.stop:
 	default:
@@ -242,11 +287,13 @@ func (r *Runner) dispatch(ctx context.Context, now time.Time) {
 		if !due || alreadyRunning {
 			continue
 		}
+		r.wg.Add(1)
 		go r.fire(ctx, t, now)
 	}
 }
 
 func (r *Runner) fire(ctx context.Context, t *task, now time.Time) {
+	defer r.wg.Done()
 	defer func() {
 		t.mu.Lock()
 		t.running = false

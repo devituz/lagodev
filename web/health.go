@@ -105,8 +105,9 @@ func (a *App) Test(req *http.Request) *httptest.ResponseRecorder {
 		method, path, h := rt.Method, rt.Path, rt.Handler
 		mux.HandleFunc(method+" "+path, func(w http.ResponseWriter, r *http.Request) {
 			ctx := newContext(w, r, a.conn)
-			value, err := h(ctx)
-			ctx.respond(value, err)
+			// respond() already runs as the innermost chain layer (see
+			// web/router.go withRespond); the handler writes the response.
+			_, _ = h(ctx)
 		})
 	}
 	mux.ServeHTTP(rec, req)

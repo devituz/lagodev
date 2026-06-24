@@ -213,6 +213,66 @@ func TestAtomicWrite_NoPartialOnError(t *testing.T) {
 	}
 }
 
+func TestSymlinkEscape_Rejected(t *testing.T) {
+	ctx := context.Background()
+	// outside is a sibling dir not under the disk root.
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("top secret"), 0o600); err != nil {
+		t.Fatalf("seed outside file: %v", err)
+	}
+
+	d := newDisk(t)
+	// link -> outside, sitting inside the root.
+	if err := os.Symlink(outside, filepath.Join(d.Root(), "link")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	// Reading through the in-root symlink must be rejected, not served.
+	if _, err := d.Get(ctx, "link/secret.txt"); !errors.Is(err, ErrPathTraversal) {
+		t.Fatalf("Get via symlink must be ErrPathTraversal, got %v", err)
+	}
+	// Writing through it must be rejected too (would land outside root).
+	if err := d.Put(ctx, "link/pwned.txt", []byte("x")); !errors.Is(err, ErrPathTraversal) {
+		t.Fatalf("Put via symlink must be ErrPathTraversal, got %v", err)
+	}
+	// Confirm nothing was written outside.
+	if _, err := os.Stat(filepath.Join(outside, "pwned.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("write escaped the root: %v", err)
+	}
+}
+
+func TestSymlinkInsideRoot_Allowed(t *testing.T) {
+	ctx := context.Background()
+	d := newDisk(t)
+	// A symlink that stays under the root must remain usable.
+	if err := os.MkdirAll(filepath.Join(d.Root(), "real"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(d.Root(), "real"), filepath.Join(d.Root(), "alias")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if err := d.Put(ctx, "alias/ok.txt", []byte("hi")); err != nil {
+		t.Fatalf("Put via in-root symlink must work, got %v", err)
+	}
+	got, err := d.Get(ctx, "real/ok.txt")
+	if err != nil || string(got) != "hi" {
+		t.Fatalf("Get = (%q, %v)", got, err)
+	}
+}
+
+func TestPutStream_HonoursContextCancellation(t *testing.T) {
+	d := newDisk(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancelled
+	err := d.PutStream(ctx, "f.txt", bytes.NewReader([]byte("data")))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	if ok, _ := d.Exists(context.Background(), "f.txt"); ok {
+		t.Fatal("no file should be written on cancelled ctx")
+	}
+}
+
 type brokenReader struct{ n int }
 
 func (b *brokenReader) Read(p []byte) (int, error) {

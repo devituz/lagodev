@@ -120,14 +120,62 @@ func (l *Local) resolve(p string) (string, error) {
 	if err != nil || strings.HasPrefix(rel, "..") || rel == ".." {
 		return "", ErrPathTraversal
 	}
+	// Lexical checks above stop "../" escapes, but a symlink *inside* the
+	// root pointing outside it would still let an operation escape. Walk
+	// the path through filepath.EvalSymlinks and re-verify the resolved
+	// target is still under the root. The leaf may not exist yet (writes),
+	// so resolve the nearest existing ancestor and re-append the missing
+	// tail before checking.
+	if err := l.verifyNoSymlinkEscape(full); err != nil {
+		return "", err
+	}
 	return full, nil
 }
 
-func (l *Local) Put(_ context.Context, path string, data []byte) error {
-	return l.PutStream(context.Background(), path, bytes.NewReader(data))
+// verifyNoSymlinkEscape resolves symlinks in full (or its nearest
+// existing ancestor) and confirms the real path stays under the root.
+func (l *Local) verifyNoSymlinkEscape(full string) error {
+	rootEval, err := filepath.EvalSymlinks(l.root)
+	if err != nil {
+		return fmt.Errorf("filesystem: eval root: %w", err)
+	}
+	// Find the longest existing ancestor of full and resolve it; the
+	// non-existent tail (for writes) is appended back lexically.
+	existing := full
+	var tail []string
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			// Reached filesystem root without finding an existing path;
+			// nothing to resolve — the lexical check already passed.
+			return nil
+		}
+		tail = append([]string{filepath.Base(existing)}, tail...)
+		existing = parent
+	}
+	evalExisting, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return fmt.Errorf("filesystem: eval symlinks: %w", err)
+	}
+	resolved := filepath.Join(append([]string{evalExisting}, tail...)...)
+	rel, err := filepath.Rel(rootEval, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ErrPathTraversal
+	}
+	return nil
 }
 
-func (l *Local) PutStream(_ context.Context, path string, r io.Reader) error {
+func (l *Local) Put(ctx context.Context, path string, data []byte) error {
+	return l.PutStream(ctx, path, bytes.NewReader(data))
+}
+
+func (l *Local) PutStream(ctx context.Context, path string, r io.Reader) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	full, err := l.resolve(path)
 	if err != nil {
 		return err
@@ -141,7 +189,9 @@ func (l *Local) PutStream(_ context.Context, path string, r io.Reader) error {
 		return fmt.Errorf("filesystem: create tmp: %w", err)
 	}
 	tmpName := tmp.Name()
-	if _, err := io.Copy(tmp, r); err != nil {
+	// Honour ctx cancellation during the copy by streaming through a
+	// reader that aborts as soon as ctx is done.
+	if _, err := io.Copy(tmp, &ctxReader{ctx: ctx, r: r}); err != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("filesystem: copy: %w", err)
@@ -301,3 +351,17 @@ func (l *Local) Stat(_ context.Context, path string) (FileInfo, error) {
 
 // Root returns the absolute filesystem root the Local disk uses.
 func (l *Local) Root() string { return l.root }
+
+// ctxReader wraps an io.Reader and aborts reads once ctx is done, so a
+// long-running PutStream copy honours cancellation/deadline.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (cr *ctxReader) Read(p []byte) (int, error) {
+	if err := cr.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return cr.r.Read(p)
+}

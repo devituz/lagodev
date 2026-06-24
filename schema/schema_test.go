@@ -1,9 +1,11 @@
 package schema_test
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -55,10 +57,107 @@ func TestCreateUsersTable_Postgres(t *testing.T) {
 
 	create := stmts[0].SQL
 	assert.True(t, strings.HasPrefix(create, `CREATE TABLE "users"`))
-	assert.Contains(t, create, `"id" BIGSERIAL`)
+	assert.Contains(t, create, `"id" BIGSERIAL NOT NULL PRIMARY KEY`)
 	assert.Contains(t, create, `"email" VARCHAR(255) NOT NULL UNIQUE`)
+	assert.Contains(t, create, `"is_admin" BOOLEAN NOT NULL DEFAULT FALSE`)
 	assert.Contains(t, create, `"meta" JSON NULL`)
 	assert.Contains(t, create, `"created_at" TIMESTAMP NULL`)
+}
+
+// TestPrimaryKeyAcrossDialects locks issues #1 and #2: a single-column ID()
+// must produce a real PRIMARY KEY on every dialect (so FKs can reference it),
+// and adding a redundant Primary("id") must not emit the PK twice.
+func TestPrimaryKeyAcrossDialects(t *testing.T) {
+	grammars := []database.Grammar{sqlite.Grammar{}, postgres.Grammar{}, mysql.Grammar{}}
+
+	t.Run("single ID is primary key", func(t *testing.T) {
+		def := schema.Create("regions", func(t *schema.Blueprint) {
+			t.ID()
+			t.JSONB("name")
+		})
+		for _, g := range grammars {
+			stmts, err := schema.NewCompiler(g).Compile(def)
+			require.NoError(t, err)
+			create := stmts[0].SQL
+			assert.Equal(t, 1, strings.Count(create, "PRIMARY KEY"),
+				"[%s] expected exactly one PRIMARY KEY: %s", g.Name(), create)
+		}
+	})
+
+	t.Run("ID plus redundant Primary does not double", func(t *testing.T) {
+		def := schema.Create("districts", func(t *schema.Blueprint) {
+			t.ID()
+			t.Primary("id")
+			t.UnsignedBigInteger("region_id")
+		})
+		for _, g := range grammars {
+			stmts, err := schema.NewCompiler(g).Compile(def)
+			require.NoError(t, err)
+			create := stmts[0].SQL
+			assert.Equal(t, 1, strings.Count(create, "PRIMARY KEY"),
+				"[%s] ID()+Primary(\"id\") must yield one PK: %s", g.Name(), create)
+		}
+	})
+
+	t.Run("composite primary key is table-level", func(t *testing.T) {
+		def := schema.Create("memberships", func(t *schema.Blueprint) {
+			t.UnsignedBigInteger("user_id")
+			t.UnsignedBigInteger("team_id")
+			t.Primary("user_id", "team_id")
+		})
+		for _, g := range grammars {
+			stmts, err := schema.NewCompiler(g).Compile(def)
+			require.NoError(t, err)
+			create := stmts[0].SQL
+			assert.Contains(t, create, "PRIMARY KEY (",
+				"[%s] composite PK must be table-level: %s", g.Name(), create)
+			assert.Equal(t, 1, strings.Count(create, "PRIMARY KEY"),
+				"[%s] composite PK emitted once: %s", g.Name(), create)
+		}
+	})
+}
+
+// TestForeignKeyReferencesPrimaryKey reproduces the regions/districts FK case
+// from issue #1: the referenced single-column PK must exist for the FK to be
+// valid on Postgres.
+func TestForeignKeyReferencesPrimaryKey(t *testing.T) {
+	def := schema.Create("districts", func(t *schema.Blueprint) {
+		t.ID()
+		t.UnsignedBigInteger("region_id")
+		t.Foreign("region_id").References("id").On("regions")
+	})
+	for _, g := range []database.Grammar{sqlite.Grammar{}, postgres.Grammar{}, mysql.Grammar{}} {
+		stmts, err := schema.NewCompiler(g).Compile(def)
+		require.NoError(t, err)
+		create := stmts[0].SQL
+		assert.Contains(t, create, "PRIMARY KEY", "[%s] %s", g.Name(), create)
+		assert.Contains(t, create, "FOREIGN KEY", "[%s] %s", g.Name(), create)
+	}
+}
+
+// TestBooleanDefaultPerDialect locks issue #3: boolean defaults must render as
+// TRUE/FALSE on Postgres and 1/0 on MySQL/SQLite.
+func TestBooleanDefaultPerDialect(t *testing.T) {
+	def := schema.Create("flags", func(t *schema.Blueprint) {
+		t.ID()
+		t.Boolean("is_active").Default(true)
+		t.Boolean("is_deleted").Default(false)
+	})
+
+	pg, err := schema.NewCompiler(postgres.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	assert.Contains(t, pg[0].SQL, `"is_active" BOOLEAN NOT NULL DEFAULT TRUE`)
+	assert.Contains(t, pg[0].SQL, `"is_deleted" BOOLEAN NOT NULL DEFAULT FALSE`)
+
+	sq, err := schema.NewCompiler(sqlite.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	assert.Contains(t, sq[0].SQL, `"is_active" BOOLEAN NOT NULL DEFAULT 1`)
+	assert.Contains(t, sq[0].SQL, `"is_deleted" BOOLEAN NOT NULL DEFAULT 0`)
+
+	my, err := schema.NewCompiler(mysql.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	assert.Contains(t, my[0].SQL, "`is_active` TINYINT(1) NOT NULL DEFAULT 1")
+	assert.Contains(t, my[0].SQL, "`is_deleted` TINYINT(1) NOT NULL DEFAULT 0")
 }
 
 func TestCreateUsersTable_MySQL(t *testing.T) {
@@ -110,10 +209,15 @@ func TestEnumCompilation(t *testing.T) {
 	assert.Contains(t, mysqlStmts[0].SQL, "ENUM('pending', 'paid', 'shipped')")
 
 	pgStmts, _ := schema.NewCompiler(postgres.Grammar{}).Compile(def)
-	assert.Contains(t, pgStmts[0].SQL, "CHECK (VALUE IN ('pending', 'paid', 'shipped'))")
+	// Postgres stores enums as VARCHAR with a table-level CHECK on the column
+	// name — "VALUE IN (...)" is invalid outside CREATE DOMAIN.
+	assert.Contains(t, pgStmts[0].SQL, `"status" VARCHAR(255) NOT NULL`)
+	assert.Contains(t, pgStmts[0].SQL, `CHECK ("status" IN ('pending', 'paid', 'shipped'))`)
+	assert.NotContains(t, pgStmts[0].SQL, "VALUE IN")
 
 	sqliteStmts, _ := schema.NewCompiler(sqlite.Grammar{}).Compile(def)
 	assert.Contains(t, sqliteStmts[0].SQL, `"status" TEXT NOT NULL`)
+	assert.Contains(t, sqliteStmts[0].SQL, `CHECK ("status" IN ('pending', 'paid', 'shipped'))`)
 }
 
 func TestUniqueAndCompositeIndex(t *testing.T) {
@@ -167,6 +271,164 @@ func TestDuplicateColumnRejected(t *testing.T) {
 	_, err := schema.NewCompiler(sqlite.Grammar{}).Compile(def)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate column")
+}
+
+// TestEnumCheckIsValidSQL locks bug #1/#6: Postgres/SQLite enum CHECK must
+// reference the column name, not the CREATE-DOMAIN-only "VALUE" keyword, and
+// SQLite must constrain enum/set values too. It executes against real SQLite to
+// prove the CHECK is enforced.
+func TestEnumCheckIsValidSQL(t *testing.T) {
+	def := schema.Create("tickets", func(t *schema.Blueprint) {
+		t.ID()
+		t.Enum("status", "open", "closed")
+		t.Set("tags", "a", "b")
+	})
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+
+	stmts, err := schema.NewCompiler(sqlite.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	for _, s := range stmts {
+		_, err := db.Exec(s.SQL)
+		require.NoErrorf(t, err, "exec failed: %s", s.SQL)
+	}
+	_, err = db.Exec(`INSERT INTO "tickets" ("status", "tags") VALUES ('open', 'a')`)
+	require.NoError(t, err, "valid enum value accepted")
+	_, err = db.Exec(`INSERT INTO "tickets" ("status", "tags") VALUES ('bogus', 'a')`)
+	require.Error(t, err, "invalid enum value rejected by CHECK")
+
+	// Postgres: VARCHAR + table-level CHECK on the column name (never VALUE).
+	pg, err := schema.NewCompiler(postgres.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	assert.Contains(t, pg[0].SQL, `CHECK ("status" IN ('open', 'closed'))`)
+	assert.NotContains(t, pg[0].SQL, "VALUE IN")
+
+	// MySQL keeps native ENUM/SET — no CHECK.
+	my, err := schema.NewCompiler(mysql.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	assert.Contains(t, my[0].SQL, "ENUM('open', 'closed')")
+	assert.NotContains(t, my[0].SQL, "CHECK")
+}
+
+// TestDropForeignPerDialect locks bug #2: FK drop syntax differs per dialect and
+// SQLite is unsupported.
+func TestDropForeignPerDialect(t *testing.T) {
+	def := schema.Table("posts", func(t *schema.Blueprint) {
+		t.DropForeign("fk_posts_user_id")
+	})
+
+	pg, err := schema.NewCompiler(postgres.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	assert.Equal(t, `ALTER TABLE "posts" DROP CONSTRAINT "fk_posts_user_id"`, pg[0].SQL)
+
+	my, err := schema.NewCompiler(mysql.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	assert.Equal(t, "ALTER TABLE `posts` DROP FOREIGN KEY `fk_posts_user_id`", my[0].SQL)
+
+	_, err = schema.NewCompiler(sqlite.Grammar{}).Compile(def)
+	require.Error(t, err, "SQLite FK drop is unsupported")
+	assert.Contains(t, err.Error(), "table rebuild")
+}
+
+// TestDropIndexPerDialect locks bug #3: MySQL needs "ON <table>".
+func TestDropIndexPerDialect(t *testing.T) {
+	def := schema.Table("posts", func(t *schema.Blueprint) {
+		t.DropIndex("posts_title_index")
+	})
+
+	my, err := schema.NewCompiler(mysql.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	assert.Equal(t, "DROP INDEX `posts_title_index` ON `posts`", my[0].SQL)
+
+	for _, g := range []database.Grammar{sqlite.Grammar{}, postgres.Grammar{}} {
+		stmts, err := schema.NewCompiler(g).Compile(def)
+		require.NoError(t, err)
+		assert.Equal(t, "DROP INDEX "+g.Quote("posts_title_index"), stmts[0].SQL,
+			"[%s] bare DROP INDEX", g.Name())
+	}
+}
+
+// TestSingleColumnIndexEmitted locks bug #4: col.Index() must emit a CREATE
+// INDEX statement.
+func TestSingleColumnIndexEmitted(t *testing.T) {
+	def := schema.Create("posts", func(t *schema.Blueprint) {
+		t.ID()
+		t.String("slug").Index()
+	})
+	stmts, err := schema.NewCompiler(sqlite.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	require.Len(t, stmts, 2)
+	assert.Equal(t, `CREATE INDEX "posts_slug_index" ON "posts" ("slug")`, stmts[1].SQL)
+}
+
+// TestAlterAddUniqueColumnUsesIndex locks bug #5: ADD COLUMN must not inline
+// UNIQUE (SQLite rejects it); a separate CREATE UNIQUE INDEX is emitted. Runs on
+// a real SQLite engine.
+func TestAlterAddUniqueColumnUsesIndex(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+
+	create := schema.Create("users", func(t *schema.Blueprint) {
+		t.ID()
+		t.String("name")
+	})
+	cs, err := schema.NewCompiler(sqlite.Grammar{}).Compile(create)
+	require.NoError(t, err)
+	for _, s := range cs {
+		_, err := db.Exec(s.SQL)
+		require.NoError(t, err)
+	}
+
+	alter := schema.Table("users", func(t *schema.Blueprint) {
+		t.String("email").Unique()
+	})
+	stmts, err := schema.NewCompiler(sqlite.Grammar{}).Compile(alter)
+	require.NoError(t, err)
+	require.Len(t, stmts, 2)
+	assert.NotContains(t, stmts[0].SQL, "UNIQUE", "ADD COLUMN must not inline UNIQUE")
+	assert.Contains(t, stmts[1].SQL, "CREATE UNIQUE INDEX")
+	for _, s := range stmts {
+		_, err := db.Exec(s.SQL)
+		require.NoErrorf(t, err, "exec failed: %s", s.SQL)
+	}
+	// UNIQUE is enforced.
+	_, err = db.Exec(`INSERT INTO "users" ("name", "email") VALUES ('a', 'x@y.z')`)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO "users" ("name", "email") VALUES ('b', 'x@y.z')`)
+	require.Error(t, err, "duplicate email rejected by unique index")
+}
+
+// TestGeneratedIndexNameCollision locks bug #6: two same-type indexes over the
+// same columns must get distinct generated names.
+func TestGeneratedIndexNameCollision(t *testing.T) {
+	def := schema.Create("t", func(t *schema.Blueprint) {
+		t.ID()
+		t.String("a")
+		t.AddIndex("a")
+		t.AddIndex("a")
+	})
+	stmts, err := schema.NewCompiler(sqlite.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	require.Len(t, stmts, 3)
+	assert.Contains(t, stmts[1].SQL, `"t_a_index"`)
+	assert.Contains(t, stmts[2].SQL, `"t_a_index_2"`)
+}
+
+// TestIndexAndForeignNameSetters locks bug #6's fluent setters.
+func TestIndexAndForeignNameSetters(t *testing.T) {
+	def := schema.Create("posts", func(t *schema.Blueprint) {
+		t.ID()
+		t.UnsignedBigInteger("user_id")
+		t.AddIndex("user_id").Name("idx_custom")
+		t.Foreign("user_id").References("id").On("users").Name("fk_custom")
+	})
+	stmts, err := schema.NewCompiler(sqlite.Grammar{}).Compile(def)
+	require.NoError(t, err)
+	assert.Contains(t, stmts[0].SQL, `CONSTRAINT "fk_custom"`)
+	assert.Contains(t, stmts[1].SQL, `"idx_custom"`)
 }
 
 func TestColumnTypeMatrix(t *testing.T) {

@@ -74,7 +74,7 @@ func (c *Context) Stream(code int, contentType string, r io.Reader) (int64, erro
 	if contentType != "" {
 		c.Writer.Header().Set("Content-Type", contentType)
 	}
-	c.Status(code)
+	c.writeHeader(code)
 	c.bodyWritten = true
 	n, err := io.Copy(c.Writer, r)
 	if flusher, ok := c.Writer.(http.Flusher); ok {
@@ -105,7 +105,7 @@ func (c *Context) SSE(event, data string) error {
 		h.Set("Cache-Control", "no-cache")
 		h.Set("Connection", "keep-alive")
 		h.Set("X-Accel-Buffering", "no") // nginx
-		c.Status(http.StatusOK)
+		c.writeHeader(http.StatusOK)
 		c.bodyWritten = true
 	}
 	// Each SSE frame ends with a blank line. Multi-line data values are

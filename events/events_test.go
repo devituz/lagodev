@@ -119,6 +119,62 @@ func TestForget(t *testing.T) {
 	}
 }
 
+// TestDispatch_PanicInListenerIsContained ensures a panicking listener
+// does not abort the remaining listeners and surfaces as a joined error.
+func TestDispatch_PanicInListenerIsContained(t *testing.T) {
+	d := New()
+	secondRan := false
+	Listen(d, func(_ context.Context, _ UserRegistered) error { panic("boom") })
+	Listen(d, func(_ context.Context, _ UserRegistered) error { secondRan = true; return nil })
+
+	err := d.Dispatch(context.Background(), UserRegistered{})
+	if err == nil {
+		t.Fatal("panic must be reported as an error")
+	}
+	if !secondRan {
+		t.Fatal("second listener must still run after the first panics")
+	}
+}
+
+// TestDispatch_PanicRespectsStopOnError ensures a panicking listener
+// short-circuits when StopOnError is set.
+func TestDispatch_PanicRespectsStopOnError(t *testing.T) {
+	d := New().StopOnError(true)
+	secondRan := false
+	Listen(d, func(_ context.Context, _ UserRegistered) error { panic("boom") })
+	Listen(d, func(_ context.Context, _ UserRegistered) error { secondRan = true; return nil })
+
+	if err := d.Dispatch(context.Background(), UserRegistered{}); err == nil {
+		t.Fatal("panic must be reported as an error")
+	}
+	if secondRan {
+		t.Fatal("StopOnError must halt after a panicking listener")
+	}
+}
+
+// TestDispatch_PointerEventReachesValueListener verifies Dispatch(&Evt{})
+// reaches a listener registered with Listen[Evt].
+func TestDispatch_PointerEventReachesValueListener(t *testing.T) {
+	d := New()
+	var got UserRegistered
+	hit := false
+	Listen(d, func(_ context.Context, e UserRegistered) error {
+		got = e
+		hit = true
+		return nil
+	})
+	want := UserRegistered{ID: 11, Email: "p@q.co"}
+	if err := d.Dispatch(context.Background(), &want); err != nil {
+		t.Fatalf("Dispatch(&evt): %v", err)
+	}
+	if !hit {
+		t.Fatal("pointer dispatch missed the value listener")
+	}
+	if got != want {
+		t.Fatalf("listener got %+v, want %+v", got, want)
+	}
+}
+
 func TestContextPropagation(t *testing.T) {
 	d := New()
 	type ctxKey string

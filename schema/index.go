@@ -13,16 +13,20 @@ const (
 
 // Index describes a table index.
 type Index struct {
-	Name    string
+	NameV   string
 	Type    IndexType
 	Columns []string
 	Algo    string // optional: btree/hash/gin/gist (Postgres)
 	Drop    bool
 }
 
+// Name sets an explicit index name, overriding the generated one. Use this to
+// target the index later via Blueprint.DropIndex.
+func (i *Index) Name(name string) *Index { i.NameV = name; return i }
+
 // Foreign describes a foreign-key constraint.
 type Foreign struct {
-	Name            string
+	NameV           string
 	Columns         []string
 	ReferencesTable string
 	ReferencesCols  []string
@@ -30,6 +34,10 @@ type Foreign struct {
 	OnUpdateAction  string
 	Drop            bool
 }
+
+// Name sets an explicit constraint name, overriding the generated one. Use this
+// to target the foreign key later via Blueprint.DropForeign.
+func (f *Foreign) Name(name string) *Foreign { f.NameV = name; return f }
 
 // On targets the referenced table.
 func (f *Foreign) On(table string) *Foreign { f.ReferencesTable = table; return f }

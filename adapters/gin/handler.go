@@ -79,12 +79,14 @@ func Resource(r IRouter, name string, ctrl ResourceController) {
 	r.PATCH(base+"/:id", H(ctrl.Update))
 	r.DELETE(base+"/:id", H(ctrl.Destroy))
 
+	// Record the routes exactly as gin serves them (`/:id`, not `/{id}`)
+	// so PrintRoutes()/OpenAPI() introspection matches the live router.
 	register(routeInfo{Method: "GET", Path: base, Resource: name, Op: "index"})
-	register(routeInfo{Method: "GET", Path: base + "/{id}", Resource: name, Op: "show"})
+	register(routeInfo{Method: "GET", Path: base + "/:id", Resource: name, Op: "show"})
 	register(routeInfo{Method: "POST", Path: base, Resource: name, Op: "store"})
-	register(routeInfo{Method: "PUT", Path: base + "/{id}", Resource: name, Op: "update"})
-	register(routeInfo{Method: "PATCH", Path: base + "/{id}", Resource: name, Op: "update"})
-	register(routeInfo{Method: "DELETE", Path: base + "/{id}", Resource: name, Op: "destroy"})
+	register(routeInfo{Method: "PUT", Path: base + "/:id", Resource: name, Op: "update"})
+	register(routeInfo{Method: "PATCH", Path: base + "/:id", Resource: name, Op: "update"})
+	register(routeInfo{Method: "DELETE", Path: base + "/:id", Resource: name, Op: "destroy"})
 }
 
 // APIResource is an alias for Resource — same behavior, Laravel-flavored name.

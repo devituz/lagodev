@@ -1,6 +1,7 @@
 package crypt
 
 import (
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -129,5 +130,23 @@ func TestSignVerify(t *testing.T) {
 	// Wrong key
 	if err := Verify(mustKey(t), data, sig); !errors.Is(err, ErrSignatureMismatch) {
 		t.Fatalf("wrong key must fail, got %v", err)
+	}
+}
+
+// TestSign_IsBase64URL locks the godoc fix: Sign returns an unpadded
+// base64url string (RawURLEncoding), not lowercase hex. A 32-byte HMAC
+// encodes to 43 base64url chars with no padding.
+func TestSign_IsBase64URL(t *testing.T) {
+	key := mustKey(t)
+	sig := Sign(key, []byte("payload"))
+	if strings.ContainsAny(sig, "=") {
+		t.Fatalf("RawURLEncoding must be unpadded, got %q", sig)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(sig)
+	if err != nil {
+		t.Fatalf("Sign output must be base64url-decodable: %v", err)
+	}
+	if len(raw) != 32 {
+		t.Fatalf("HMAC-SHA256 must be 32 bytes, got %d", len(raw))
 	}
 }

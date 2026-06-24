@@ -91,13 +91,23 @@ func (s *Schema) Columns() []string {
 // InsertableColumns returns columns to include on insert (skips relations,
 // skip-marked, and zero-valued auto fields).
 func (s *Schema) InsertableColumns(v reflect.Value) ([]string, []any) {
+	v = IndirectValue(v)
 	cols := make([]string, 0, len(s.Fields))
 	vals := make([]any, 0, len(s.Fields))
 	for _, f := range s.Fields {
 		if f.Skip || f.IsRelation {
 			continue
 		}
-		fv := v.FieldByIndex(f.Index)
+		fv, ok := fieldByIndex(v, f.Index)
+		if !ok {
+			// Field lives behind a nil embedded pointer; treat as zero.
+			if f.IsAutoIncrement {
+				continue
+			}
+			cols = append(cols, f.Column)
+			vals = append(vals, reflect.Zero(f.Type).Interface())
+			continue
+		}
 		if f.IsAutoIncrement && fv.IsZero() {
 			continue
 		}
@@ -105,6 +115,27 @@ func (s *Schema) InsertableColumns(v reflect.Value) ([]string, []any) {
 		vals = append(vals, fv.Interface())
 	}
 	return cols, vals
+}
+
+// fieldByIndex walks the index path like reflect.Value.FieldByIndex but does
+// not panic on a nil embedded pointer; it reports ok=false instead so callers
+// can substitute a zero value (the column is NULL for such embeds).
+func fieldByIndex(v reflect.Value, index []int) (reflect.Value, bool) {
+	if len(index) == 1 {
+		return v.Field(index[0]), true
+	}
+	for i, x := range index {
+		if i > 0 {
+			if v.Kind() == reflect.Ptr {
+				if v.IsNil() {
+					return reflect.Value{}, false
+				}
+				v = v.Elem()
+			}
+		}
+		v = v.Field(x)
+	}
+	return v, true
 }
 
 var cache sync.Map // map[reflect.Type]*Schema

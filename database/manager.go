@@ -105,9 +105,16 @@ func (m *Manager) Open(name string, cfg Config) (*Connection, error) {
 
 // Use registers an externally-built connection. Useful when the host
 // application owns the *sql.DB lifecycle.
+//
+// If a connection is already registered under name, it is closed before
+// being replaced so its pool is not leaked. Pass a fresh *Connection; the
+// previous one must not be used after this call returns.
 func (m *Manager) Use(name string, conn *Connection) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if prev, ok := m.connections[name]; ok && prev != conn {
+		_ = prev.Close()
+	}
 	m.connections[name] = conn
 	if m.defaultName == "" {
 		m.defaultName = name

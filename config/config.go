@@ -21,7 +21,7 @@ func LoadEnv(files ...string) error {
 	if len(files) == 0 {
 		files = []string{".env"}
 	}
-	available := files[:0]
+	available := make([]string, 0, len(files))
 	for _, f := range files {
 		if _, err := os.Stat(f); err == nil {
 			available = append(available, f)

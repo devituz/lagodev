@@ -1,8 +1,11 @@
 package web
 
 import (
+	"bufio"
 	"errors"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -223,5 +226,49 @@ func (w *loggingWriter) WriteHeader(code int) {
 func (w *loggingWriter) Write(b []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(b)
 	w.bytes += n
+	return n, err
+}
+
+// Flush forwards to the underlying writer so streaming/SSE responses are
+// not buffered when Logger wraps the writer. http.ResponseWriter does not
+// embed http.Flusher, so without this method `c.Writer.(http.Flusher)`
+// would fail through the default middleware stack and Flush would be a
+// silent no-op.
+func (w *loggingWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack forwards to the underlying writer when it supports connection
+// hijacking (WebSocket upgrades, raw TCP). Returns http.ErrNotSupported
+// otherwise, matching the stdlib contract.
+func (w *loggingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
+}
+
+// Push forwards HTTP/2 server push to the underlying writer when
+// supported, otherwise reports http.ErrNotSupported.
+func (w *loggingWriter) Push(target string, opts *http.PushOptions) error {
+	if p, ok := w.ResponseWriter.(http.Pusher); ok {
+		return p.Push(target, opts)
+	}
+	return http.ErrNotSupported
+}
+
+// ReadFrom forwards to the underlying writer's io.ReaderFrom when
+// available (zero-copy file sends via sendfile), counting the bytes for
+// the access log. Falls back to a plain copy otherwise.
+func (w *loggingWriter) ReadFrom(r io.Reader) (int64, error) {
+	if rf, ok := w.ResponseWriter.(io.ReaderFrom); ok {
+		n, err := rf.ReadFrom(r)
+		w.bytes += int(n)
+		return n, err
+	}
+	n, err := io.Copy(w.ResponseWriter, r)
+	w.bytes += int(n)
 	return n, err
 }

@@ -169,6 +169,11 @@ func (t *Translator) Has(key string) bool {
 // occurrences from replace. If the key is missing from the active
 // locale, the fallback locale is consulted. If still missing, the key
 // itself is returned (helps spot missing translations in development).
+//
+// When key resolves to a plural map, Get returns the "other" form. Because
+// Get has no count, it does NOT inject :count automatically; any :count
+// placeholder must be supplied explicitly via replace (use Choice for
+// count-aware pluralisation).
 func (t *Translator) Get(key string, replace ...M) string {
 	t.mu.RLock()
 	msgs := t.messages[t.current]

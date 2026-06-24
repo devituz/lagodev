@@ -32,9 +32,34 @@ type Factory[T any] struct {
 	faker       *Faker
 }
 
-// New constructs a Factory using a definition function.
-func New[T any](conn *database.Connection, def DefinitionFn[T]) *Factory[T] {
-	return &Factory[T]{conn: conn, def: def, count: 1, faker: NewFaker()}
+// Option configures a Factory at construction time.
+type Option func(faker **Faker)
+
+// WithSeed makes the factory's generated data reproducible by seeding the
+// underlying gofakeit.Faker. Two factories built with the same seed and
+// definition produce identical instances.
+func WithSeed(seed uint64) Option {
+	return func(faker **Faker) { *faker = NewSeeded(seed) }
+}
+
+// WithFaker injects a pre-configured Faker (e.g. a seeded one shared across
+// factories) instead of the default un-seeded instance.
+func WithFaker(f *Faker) Option {
+	return func(faker **Faker) {
+		if f != nil {
+			*faker = f
+		}
+	}
+}
+
+// New constructs a Factory using a definition function. Options may seed or
+// replace the underlying Faker for reproducible builds.
+func New[T any](conn *database.Connection, def DefinitionFn[T], opts ...Option) *Factory[T] {
+	faker := NewFaker()
+	for _, opt := range opts {
+		opt(&faker)
+	}
+	return &Factory[T]{conn: conn, def: def, count: 1, faker: faker}
 }
 
 // Count sets how many instances to build.

@@ -38,6 +38,7 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	netmail "net/mail"
 	"net/smtp"
 	"net/textproto"
 	"path/filepath"
@@ -48,6 +49,11 @@ import (
 
 // ErrEmptyRecipients is returned when a Message has no To/Cc/Bcc.
 var ErrEmptyRecipients = errors.New("mail: at least one recipient required")
+
+// ErrHeaderInjection is returned when an address or header value
+// contains a CR/LF, which could be used to smuggle additional headers
+// (e.g. a hidden Bcc) into the RFC 5322 header block.
+var ErrHeaderInjection = errors.New("mail: CR/LF in header field rejected")
 
 // Attachment is an inline file attached to a Message.
 type Attachment struct {
@@ -140,10 +146,16 @@ func (m Message) Recipients() []string {
 //   - no attachments, html only          → text/html
 //   - no attachments, both               → multipart/alternative
 //   - any attachments                    → multipart/mixed wrapping
-//                                          alternative-or-single body
+//     alternative-or-single body
 func (m Message) Encode() ([]byte, error) {
 	if len(m.Recipients()) == 0 {
 		return nil, ErrEmptyRecipients
+	}
+	// Validate/canonicalise every header-bound field before emitting so a
+	// CR/LF in any address or custom header cannot smuggle extra headers
+	// into the RFC 5322 block (header injection / Bcc smuggling).
+	if err := sanitizeHeaders(&m); err != nil {
+		return nil, err
 	}
 	var buf bytes.Buffer
 	writeCommonHeaders(&buf, m)
@@ -190,6 +202,82 @@ func (m Message) Encode() ([]byte, error) {
 		buf.WriteString(quotedPrintable(m.Text))
 	}
 	return buf.Bytes(), nil
+}
+
+// sanitizeHeaders validates and canonicalises every header-bound field
+// of m in place. Addresses (From/To/Cc/ReplyTo) are parsed with the
+// net/mail package and re-emitted in their canonical form; a parse
+// failure or an embedded CR/LF is rejected with ErrHeaderInjection.
+// Custom header keys and values are checked for CR/LF too. Bcc is an
+// envelope-only field (never written into the header block) but is
+// still validated so a malicious Bcc can't reach the SMTP transport.
+func sanitizeHeaders(m *Message) error {
+	if m.From != "" {
+		addr, err := canonAddress(m.From)
+		if err != nil {
+			return err
+		}
+		m.From = addr
+	}
+	for _, list := range []*[]string{&m.To, &m.Cc, &m.Bcc} {
+		canon, err := canonAddressList(*list)
+		if err != nil {
+			return err
+		}
+		*list = canon
+	}
+	if m.ReplyTo != "" {
+		addr, err := canonAddress(m.ReplyTo)
+		if err != nil {
+			return err
+		}
+		m.ReplyTo = addr
+	}
+	for k, v := range m.Headers {
+		if containsCRLF(k) || containsCRLF(v) {
+			return ErrHeaderInjection
+		}
+	}
+	return nil
+}
+
+// canonAddress parses a single address and returns its canonical RFC
+// 5322 form. A CR/LF or parse failure yields ErrHeaderInjection.
+func canonAddress(s string) (string, error) {
+	if containsCRLF(s) {
+		return "", ErrHeaderInjection
+	}
+	a, err := netmail.ParseAddress(s)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrHeaderInjection, err)
+	}
+	return a.String(), nil
+}
+
+// canonAddressList parses a comma-joined address list and returns the
+// canonical form of each entry.
+func canonAddressList(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" {
+			continue
+		}
+		if containsCRLF(s) {
+			return nil, ErrHeaderInjection
+		}
+		addrs, err := netmail.ParseAddressList(s)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrHeaderInjection, err)
+		}
+		for _, a := range addrs {
+			out = append(out, a.String())
+		}
+	}
+	return out, nil
+}
+
+func containsCRLF(s string) bool {
+	return strings.ContainsAny(s, "\r\n")
 }
 
 func writeCommonHeaders(buf *bytes.Buffer, m Message) {
@@ -389,6 +477,12 @@ func NewSMTPMailer(cfg SMTPConfig) *SMTPMailer {
 
 // Send dispatches msg. If Message.From is empty, the config's default
 // From is used. The wall-clock deadline is taken from ctx.
+//
+// Send returns as soon as ctx is done, but because net/smtp.SendMail is
+// not context-aware the underlying delivery goroutine keeps running
+// until the SMTP exchange finishes (or the dialler's own timeout fires)
+// — it is not killed when ctx is cancelled. Set a Dialer/Host timeout
+// at the network layer to bound that goroutine.
 func (m *SMTPMailer) Send(ctx context.Context, msg Message) error {
 	if msg.From == "" {
 		msg.From = m.cfg.From

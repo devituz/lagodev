@@ -141,6 +141,74 @@ func TestRunner_StopExitsRun(t *testing.T) {
 	}
 }
 
+// TestRunner_StopDrainsInFlightTask ensures Stop waits for a task that
+// has already fired to finish (graceful drain) instead of returning
+// while it is still running.
+func TestRunner_StopDrainsInFlightTask(t *testing.T) {
+	r := New().Tick(5 * time.Millisecond)
+	started := make(chan struct{})
+	var finished int32
+	r.Job("slow", Every(5*time.Millisecond), func(ctx context.Context) error {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		time.Sleep(150 * time.Millisecond)
+		atomic.StoreInt32(&finished, 1)
+		return nil
+	})
+
+	runDone := make(chan struct{})
+	go func() {
+		_ = r.Run(context.Background())
+		close(runDone)
+	}()
+
+	<-started // task is in-flight
+	r.Stop()  // signal stop while task runs
+	select {  // Run must block until the task drains
+	case <-runDone:
+		if atomic.LoadInt32(&finished) != 1 {
+			t.Fatal("Run returned before in-flight task finished (no drain)")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return after drain")
+	}
+}
+
+// TestRunner_RestartableAfterStop verifies a Runner can Run again after
+// Stop. The one-shot stop channel previously made the second Run return
+// immediately.
+func TestRunner_RestartableAfterStop(t *testing.T) {
+	r := New().Tick(5 * time.Millisecond)
+	var hits int32
+	r.Job("ping", Every(5*time.Millisecond), func(_ context.Context) error {
+		atomic.AddInt32(&hits, 1)
+		return nil
+	})
+
+	// First cycle.
+	go func() { _ = r.Run(context.Background()) }()
+	time.Sleep(40 * time.Millisecond)
+	r.Stop()
+	first := atomic.LoadInt32(&hits)
+	if first < 1 {
+		t.Fatalf("first run produced no hits: %d", first)
+	}
+
+	// Second cycle must actually run again.
+	atomic.StoreInt32(&hits, 0)
+	done := make(chan struct{})
+	go func() { _ = r.Run(context.Background()); close(done) }()
+	time.Sleep(40 * time.Millisecond)
+	r.Stop()
+	<-done
+	if atomic.LoadInt32(&hits) < 1 {
+		t.Fatal("Runner did not fire after restart")
+	}
+}
+
 func TestEveryFiveMinutesAlias(t *testing.T) {
 	if EveryFiveMinutes().String() != "every 5m0s" {
 		t.Fatalf("description = %q", EveryFiveMinutes().String())

@@ -32,7 +32,8 @@ type Store interface {
 	// Read returns the session data for id. ok=false on miss.
 	Read(ctx context.Context, id string) (map[string]any, bool, error)
 	// Write replaces the session data for id. ttl=0 means use the
-	// store's default.
+	// store's default; ttl<0 means the record is already expired and is
+	// removed rather than written.
 	Write(ctx context.Context, id string, data map[string]any, ttl time.Duration) error
 	// Destroy removes the session.
 	Destroy(ctx context.Context, id string) error
@@ -41,10 +42,10 @@ type Store interface {
 // MemoryStore is a sync.RWMutex-backed in-process Store with lazy
 // expiry and a periodic sweeper.
 type MemoryStore struct {
-	mu      sync.RWMutex
-	items   map[string]memoryItem
+	mu       sync.RWMutex
+	items    map[string]memoryItem
 	default_ time.Duration
-	stop    chan struct{}
+	stop     chan struct{}
 }
 
 type memoryItem struct {
@@ -94,6 +95,14 @@ func (s *MemoryStore) Read(_ context.Context, id string) (map[string]any, bool, 
 }
 
 func (s *MemoryStore) Write(_ context.Context, id string, data map[string]any, ttl time.Duration) error {
+	// A negative TTL means the record is already expired: remove it
+	// instead of storing. ttl==0 still means "use the store default".
+	if ttl < 0 {
+		s.mu.Lock()
+		delete(s.items, id)
+		s.mu.Unlock()
+		return nil
+	}
 	if ttl == 0 {
 		ttl = s.default_
 	}
@@ -188,8 +197,8 @@ func NewManager(store Store, opts Options) *Manager {
 // persist any changes and (re-)issue the cookie.
 func (m *Manager) Start(ctx context.Context, r *http.Request) (*Session, error) {
 	var (
-		id   string
-		data map[string]any
+		id    string
+		data  map[string]any
 		isNew bool
 	)
 	if ck, err := r.Cookie(m.cookieName); err == nil && ck.Value != "" {
@@ -217,11 +226,12 @@ func (m *Manager) Start(ctx context.Context, r *http.Request) (*Session, error) 
 // Session is the per-request handle. Not safe for concurrent use
 // across goroutines.
 type Session struct {
-	m     *Manager
-	id    string
-	data  map[string]any
-	isNew bool
-	dirty bool
+	m         *Manager
+	id        string
+	data      map[string]any
+	isNew     bool
+	dirty     bool
+	destroyed bool
 }
 
 // ID returns the opaque session identifier.
@@ -293,8 +303,13 @@ func (s *Session) Regenerate(ctx context.Context) error {
 }
 
 // Save persists pending changes (if any) and writes the cookie. Always
-// safe to call.
+// safe to call. After Destroy it is a no-op: a destroyed session must
+// never be re-written to the store or re-issued as a live cookie (that
+// would defeat logout).
 func (s *Session) Save(ctx context.Context, w http.ResponseWriter) error {
+	if s.destroyed {
+		return nil
+	}
 	if s.dirty || s.isNew {
 		if err := s.m.store.Write(ctx, s.id, s.data, s.m.ttl); err != nil {
 			return err
@@ -327,6 +342,7 @@ func (s *Session) Destroy(ctx context.Context, w http.ResponseWriter) error {
 		MaxAge:   -1,
 	})
 	s.data = make(map[string]any)
+	s.destroyed = true
 	return nil
 }
 
