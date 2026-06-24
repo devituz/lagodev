@@ -13,8 +13,8 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/devituz/lagodev v0.20.2 h1:ScOolQi/0Hz3pcdA6S1Yse8vAIA/Uc5Did7QoL4+ASQ=
 github.com/devituz/lagodev v0.20.2/go.mod h1:btsjsLq17QvI7MzEQkAczJbR3kQJolPlkhZ6ARPxZ4g=
-github.com/devituz/lagodev/adapters/gin v0.10.0 h1:k+MzI5NcqrB2VQTnBOh5Tsj+jZsfg3v+YunXQ0R0Cpg=
-github.com/devituz/lagodev/adapters/gin v0.10.0/go.mod h1:MJ5hQn+KTTRDlfBwhZj2PV0Et9JeQixNh9HN9HwoUqw=
+github.com/devituz/lagodev/adapters/gin v0.11.0 h1:MhBk+EC9xVF0HrgjpHZOxQm+moDSsUGsf7kn+2vFoiE=
+github.com/devituz/lagodev/adapters/gin v0.11.0/go.mod h1:3888vQ7D73FOeYQRKK4x1vpt6f7ht5hQ6k+rkiGuDVM=
 github.com/gabriel-vasile/mimetype v1.4.3 h1:in2uUcidCuFcDKtdcBxlR0rJ1+fsokWf+uqxgUFjbI0=
 github.com/gabriel-vasile/mimetype v1.4.3/go.mod h1:d8uq/6HKRL6CGdk+aubisF/M5GcPfT7nKyLpA0lbSSk=
 github.com/gin-contrib/sse v0.1.0 h1:Y/yl/+YNO8GZSjAhjMsSuLt29uWRFHdHYUb5lYOV9qE=
