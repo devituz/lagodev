@@ -37,6 +37,7 @@ type Builder[T any] struct {
 	schema   *reflectutil.Schema
 	qb       *query.Builder
 	trashed  trashedMode
+	withs    []*withSpec
 }
 
 // Query returns a fresh model builder.
@@ -141,7 +142,11 @@ func (b *Builder[T]) Get(ctx context.Context, dst *[]T) error {
 		return err
 	}
 	defer rows.Close()
-	return hydrateRows[T](ctx, b.conn, rows, b.schema, dst)
+	if err := hydrateRows[T](ctx, b.conn, rows, b.schema, dst); err != nil {
+		return err
+	}
+	rows.Close()
+	return b.eagerLoad(ctx, dst)
 }
 
 // First returns the first matching row, or ErrNotFound. It runs against a
@@ -159,6 +164,10 @@ func (b *Builder[T]) First(ctx context.Context) (*T, error) {
 	}
 	if len(out) == 0 {
 		return nil, ErrNotFound
+	}
+	rows.Close()
+	if err := b.eagerLoad(ctx, &out); err != nil {
+		return nil, err
 	}
 	return &out[0], nil
 }
@@ -186,6 +195,10 @@ func (b *Builder[T]) Find(ctx context.Context, id any) (*T, error) {
 	}
 	if len(out) == 0 {
 		return nil, ErrNotFound
+	}
+	rows.Close()
+	if err := b.eagerLoad(ctx, &out); err != nil {
+		return nil, err
 	}
 	return &out[0], nil
 }

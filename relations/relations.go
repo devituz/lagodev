@@ -43,6 +43,14 @@ type Relation struct {
 	MorphType      string // for polymorphic: column holding child model type
 	MorphID        string // for polymorphic: column holding child model id
 	MorphValue     string // expected type string in MorphType column
+
+	// Apply, when set, is invoked on the child query builder before execution.
+	// It lets callers layer extra constraints onto an eager load — a soft-delete
+	// scope (deleted_at IS NULL), an additional WHERE, an ORDER BY, a LIMIT — on
+	// top of the relation's own foreign-key filter. It is applied by the
+	// query.Builder-based loaders (HasOne/HasMany/Morph*/BelongsTo); the
+	// BelongsToMany loader builds raw SQL and does not honor it.
+	Apply func(qb *query.Builder)
 }
 
 // Load executes the relation against a single parent and writes the result
@@ -107,11 +115,14 @@ func (r *Relation) loadHasOrMorph(ctx context.Context, parents []any, assign fun
 	}
 	childType := childElemType(r.ChildSlicePtr)
 	childSchema := reflectutil.ParseType(childType)
-	tableName := childSchema.Table
+	tableName := childTableName(childType, childSchema)
 
 	qb := query.New(r.Conn, tableName).WhereIn(r.ForeignKey, pkIDs)
 	if r.Kind == MorphOne || r.Kind == MorphMany {
 		qb.Where(r.MorphType, "=", r.MorphValue)
+	}
+	if r.Apply != nil {
+		r.Apply(qb)
 	}
 	rows, err := qb.Get(ctx)
 	if err != nil {
@@ -179,8 +190,12 @@ func (r *Relation) loadBelongsTo(ctx context.Context, parents []any, assign func
 	}
 	childType := childElemType(r.ChildSlicePtr)
 	childSchema := reflectutil.ParseType(childType)
-	tableName := childSchema.Table
-	rows, err := query.New(r.Conn, tableName).WhereIn(r.OwnerKey, keys).Get(ctx)
+	tableName := childTableName(childType, childSchema)
+	qb := query.New(r.Conn, tableName).WhereIn(r.OwnerKey, keys)
+	if r.Apply != nil {
+		r.Apply(qb)
+	}
+	rows, err := qb.Get(ctx)
 	if err != nil {
 		return err
 	}
@@ -230,7 +245,7 @@ func (r *Relation) loadBelongsToMany(ctx context.Context, parents []any, assign 
 	childType := childElemType(r.ChildSlicePtr)
 	childSchema := reflectutil.ParseType(childType)
 	g := r.Conn.Grammar
-	childTable := childSchema.Table
+	childTable := childTableName(childType, childSchema)
 	q := fmt.Sprintf(
 		"SELECT %s.*, %s.%s AS __parent_fk FROM %s INNER JOIN %s ON %s.%s = %s.%s WHERE %s.%s IN (",
 		g.Quote(childTable),
@@ -294,6 +309,22 @@ func (r *Relation) loadBelongsToMany(ctx context.Context, parents []any, assign 
 		}
 	}
 	return nil
+}
+
+// tabler mirrors orm.Tabler so a related model can override its inferred table
+// name without relations importing the orm package (which would invert the
+// dependency direction). The override is consulted via a freshly allocated
+// zero value of the child type.
+type tabler interface{ TableName() string }
+
+// childTableName resolves the table name for a child model type, honoring a
+// TableName() override when the type implements it, and falling back to the
+// schema's inflected default.
+func childTableName(childType reflect.Type, childSchema *reflectutil.Schema) string {
+	if t, ok := reflect.New(childType).Interface().(tabler); ok {
+		return t.TableName()
+	}
+	return childSchema.Table
 }
 
 // childElemType returns the element type of the destination slice/pointer.
