@@ -3,6 +3,23 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.23.0 — 2026-06-24
+
+API-first (Roadmap milestone v0.23.0). Additive.
+
+### Added
+
+- **`openapi` — framework-wide OpenAPI 3.1.** Reflects Go structs into JSON
+  Schema (honoring `json` + `validate` tags: required, formats, bounds, enum),
+  a `Spec` builder for operations/params/bodies/responses with `$ref`
+  components, route harvesting from `web.App`, and `Handler()`/Swagger-UI
+  handlers (`/openapi.json` + docs page).
+- **`collection` — generic data pipeline.** `Collection[T]` with chainable
+  same-type methods (Filter/Reject/Map/Sort/Chunk/Partition/Take/Skip/…) plus
+  type-changing free functions (`Map[T,U]`/`Reduce`/`GroupBy`/`KeyBy`/`Pluck`),
+  numeric `Sum`/`Avg`/`Min`/`Max`, and an `iter.Seq` bridge. Immutable by
+  default.
+
 ## v0.22.0 — 2026-06-24
 
 Application core — the architecture layer that turns a pile of packages into a
