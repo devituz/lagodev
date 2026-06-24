@@ -306,7 +306,7 @@ func TestValidationPasses(t *testing.T) {
 // --- 5. AuthJWT middleware ---------------------------------------------
 
 func TestAuthJWTRejectsMissing(t *testing.T) {
-	mgr, _ := auth.New(auth.Config{Secret: "s", AccessTTL: time.Hour})
+	mgr, _ := auth.New(auth.Config{Secret: "test-secret-do-not-use-in-prod-32bytes!!", AccessTTL: time.Hour})
 	r := gin.New()
 	r.GET("/me", lagogin.AuthJWT(mgr), lagogin.H(func(c *lagogin.Ctx) (any, error) {
 		return c.UserID(), nil
@@ -318,7 +318,7 @@ func TestAuthJWTRejectsMissing(t *testing.T) {
 }
 
 func TestAuthJWTAcceptsValid(t *testing.T) {
-	mgr, _ := auth.New(auth.Config{Secret: "s", AccessTTL: time.Hour})
+	mgr, _ := auth.New(auth.Config{Secret: "test-secret-do-not-use-in-prod-32bytes!!", AccessTTL: time.Hour})
 	token, _, _ := mgr.IssueAccess(42, "admin")
 
 	r := gin.New()
