@@ -31,3 +31,9 @@ vendor/
 *.sqlite
 *.sqlite3
 !testdata/*.db
+
+# Compiled example binaries (built with `go build` inside each example dir)
+examples/blog/blog
+examples/chi/chi
+examples/echo/echo
+examples/gin/gin
