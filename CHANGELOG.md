@@ -3,6 +3,32 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.22.0 — 2026-06-24
+
+Application core — the architecture layer that turns a pile of packages into a
+cohesive app (Roadmap milestone v0.22.0). All additive.
+
+### Added
+
+- **`container` — DI service container.** Generic, type-safe:
+  `Bind`/`Singleton`/`Instance` (+ named variants), `Make`/`MustMake`,
+  child `Scope()`s with per-scope singleton lifetimes (per-request DI),
+  cyclic-dependency detection, and opt-in struct autowiring (`Build`).
+  Goroutine-safe; resolve-once verified under `-race`.
+- **`app` — application bootstrap + modules.** `app.New().Register(modules…).Run()`
+  wires `container` + `web` + `config` + `migrations`. Two-phase `Provider`
+  (`Register` then `Boot`), `Module` grouping routes/migrations/commands,
+  per-request container scope, graceful `Run`/`Test`.
+- **`resource` — API resources / serializers.** Map models to clean JSON
+  without hand-mapping: `Resource[Model]`/`Func`, a `Fields` builder
+  (`Only`/`Except`/`Rename`/`When`/`OmitEmpty`), `Embed`/`EmbedMany` for nested
+  relations, and `Item`/`Collection`/`Paginated` renderers that derive
+  `meta`+`links` from `orm.Paginator`. Leaf package, cycle-free.
+- **ORM eager loading — `With("posts.comments")`.** `(*Builder[T]).With`/
+  `WithWhere` batch-load relations declared on the model
+  (`WithRelations`/`RelationDef`) with one query per level (no N+1), honoring
+  soft-delete scope and `Tabler`. Verified by exact SELECT-count tests.
+
 ## v0.21.0 — 2026-06-24
 
 Framework feature expansion: validation, ORM soft deletes / pagination /
