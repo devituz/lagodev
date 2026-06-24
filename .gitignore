@@ -36,4 +36,5 @@ vendor/
 examples/blog/blog
 examples/chi/chi
 examples/echo/echo
+examples/fiber/fiber
 examples/gin/gin
