@@ -3,6 +3,19 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.20.1 — 2026-06-24
+
+### Security
+
+- Pin the build toolchain to **go1.26.4** (`toolchain` directive in
+  `go.mod`). `govulncheck` flagged 14 reachable vulnerabilities, all in the
+  Go standard library shipped with go1.26.0–1.26.3 (`net/mail`,
+  `net/textproto`, `crypto/x509`, `crypto/tls`, `net/http`, `net/url`,
+  `net`, `os`), reached through the mail/web/db code paths. 1.26.4 fixes
+  all of them; `govulncheck ./...` is now clean (0 reachable). The
+  remaining advisories Dependabot reports are in modules the code does not
+  call (not reachable).
+
 ## v0.20.0 — 2026-06-24
 
 Framework-grade hardening pass. A full audit of every package (exercised

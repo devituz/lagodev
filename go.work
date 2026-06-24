@@ -7,6 +7,8 @@
 // the example binaries without manual replace directives.
 go 1.25.0
 
+toolchain go1.26.4
+
 use (
 	.
 	./adapters/gin

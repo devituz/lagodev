@@ -2,6 +2,11 @@ module github.com/devituz/lagodev
 
 go 1.25.0
 
+// Build with a patched toolchain: go1.26.0–1.26.3 ship stdlib vulnerabilities
+// (net/mail, net/textproto, crypto/x509, crypto/tls, net/http, os, net/url)
+// that lagodev's mail/web/db paths reach. 1.26.4 fixes all of them.
+toolchain go1.26.4
+
 require (
 	github.com/brianvoe/gofakeit/v7 v7.0.4
 	github.com/fatih/color v1.19.0
