@@ -4,8 +4,8 @@ github.com/brianvoe/gofakeit/v7 v7.15.0 h1:kGLYAWN8tnmxq2PelKVK6zwpM7kMxdz9SGPH3
 github.com/brianvoe/gofakeit/v7 v7.15.0/go.mod h1:QXuPeBw164PJCzCUZVmgpgHJ3Llj49jSLVkKPMtxtxA=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/devituz/lagodev v0.20.2 h1:ScOolQi/0Hz3pcdA6S1Yse8vAIA/Uc5Did7QoL4+ASQ=
-github.com/devituz/lagodev v0.20.2/go.mod h1:btsjsLq17QvI7MzEQkAczJbR3kQJolPlkhZ6ARPxZ4g=
+github.com/devituz/lagodev v0.24.0 h1:y+pCm6EtbjipW/KZa8REan6HnZ+XgikARx8EOunnPxw=
+github.com/devituz/lagodev v0.24.0/go.mod h1:btsjsLq17QvI7MzEQkAczJbR3kQJolPlkhZ6ARPxZ4g=
 github.com/go-sql-driver/mysql v1.10.0 h1:Q+1LV8DkHJvSYAdR83XzuhDaTykuDx0l6fkXxoWCWfw=
 github.com/go-sql-driver/mysql v1.10.0/go.mod h1:M+cqaI7+xxXGG9swrdeUIoPG3Y3KCkF0pZej+SK+nWk=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=

@@ -3,7 +3,7 @@ module github.com/devituz/lagodev/examples/gin
 go 1.25.0
 
 require (
-	github.com/devituz/lagodev v0.20.2
+	github.com/devituz/lagodev v0.24.0
 	github.com/devituz/lagodev/adapters/gin v0.11.0
 	github.com/gin-gonic/gin v1.10.0
 )
