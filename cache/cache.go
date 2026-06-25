@@ -57,10 +57,30 @@ type Store interface {
 // for concurrent use; expiry is lazy (checked on Get/Has) with a
 // background sweeper to keep the map from growing unbounded.
 type Memory struct {
-	mu    sync.RWMutex
-	items map[string]memoryItem
-	stop  chan struct{}
+	mu       sync.RWMutex
+	items    map[string]memoryItem
+	stop     chan struct{}
+	sweepInt time.Duration
+
+	// flightMu guards flights. It is separate from mu so an in-flight
+	// producer (which may be slow) never blocks plain Get/Put traffic.
+	flightMu sync.Mutex
+	flights  map[string]*flight
 }
+
+// flight is one in-progress single-flight producer. Waiters block on
+// done; the winner fills val/err and closes it.
+type flight struct {
+	done chan struct{}
+	val  []byte
+	err  error
+}
+
+// defaultSweepInterval is how often the background sweeper purges expired
+// entries. Lazy expiry (on Get/Has) means an unaccessed expired key is
+// only reclaimed by this sweep, so the interval bounds worst-case memory
+// retention of write-only short-TTL keys.
+const defaultSweepInterval = time.Minute
 
 type memoryItem struct {
 	value     []byte
@@ -72,8 +92,10 @@ type memoryItem struct {
 // it.
 func NewMemory() *Memory {
 	m := &Memory{
-		items: make(map[string]memoryItem),
-		stop:  make(chan struct{}),
+		items:    make(map[string]memoryItem),
+		stop:     make(chan struct{}),
+		sweepInt: defaultSweepInterval,
+		flights:  make(map[string]*flight),
 	}
 	go m.sweep()
 	return m
@@ -169,23 +191,40 @@ func (m *Memory) Pull(_ context.Context, key string) ([]byte, bool, error) {
 }
 
 func (m *Memory) sweep() {
-	t := time.NewTicker(5 * time.Minute)
+	t := time.NewTicker(m.sweepInt)
 	defer t.Stop()
 	for {
 		select {
 		case <-m.stop:
 			return
 		case <-t.C:
-			now := time.Now()
-			m.mu.Lock()
-			for k, it := range m.items {
-				if !it.expiresAt.IsZero() && now.After(it.expiresAt) {
-					delete(m.items, k)
-				}
-			}
-			m.mu.Unlock()
+			m.purgeExpired(time.Now())
 		}
 	}
+}
+
+// purgeExpired deletes every entry expired as of now in one critical
+// section. The background sweeper calls it on a ticker; it is also the
+// deterministic hook tests use to force eviction without waiting on the
+// timer.
+func (m *Memory) purgeExpired(now time.Time) {
+	m.mu.Lock()
+	for k, it := range m.items {
+		if it.expired(now) {
+			delete(m.items, k)
+		}
+	}
+	m.mu.Unlock()
+}
+
+// len reports the number of entries currently held in the backing map,
+// including not-yet-purged expired ones. Used by tests to assert the map
+// stays bounded.
+func (m *Memory) len() int {
+	m.mu.RLock()
+	n := len(m.items)
+	m.mu.RUnlock()
+	return n
 }
 
 // Remember returns the value for key if present, otherwise calls fn,
@@ -194,11 +233,22 @@ func (m *Memory) sweep() {
 //
 //	users, err := cache.Remember(ctx, store, "users:list", time.Minute,
 //	    func() ([]byte, error) { return json.Marshal(listUsers()) })
+//
+// Thundering herd: if the store implements the singleflighter optional
+// interface (e.g. *Memory), concurrent Remember calls for the same
+// missing key collapse onto a single fn invocation — the rest wait for
+// and share its result. On a plain Store that does not implement it,
+// Remember degrades to cache-aside and duplicate producers may run
+// concurrently for the same key; that is correct (last writer wins) but
+// not deduplicated.
 func Remember(ctx context.Context, s Store, key string, ttl time.Duration, fn func() ([]byte, error)) ([]byte, error) {
 	if v, ok, err := s.Get(ctx, key); err != nil {
 		return nil, err
 	} else if ok {
 		return v, nil
+	}
+	if sf, ok := s.(singleflighter); ok {
+		return sf.rememberOnce(ctx, key, ttl, fn)
 	}
 	v, err := fn()
 	if err != nil {
@@ -208,6 +258,67 @@ func Remember(ctx context.Context, s Store, key string, ttl time.Duration, fn fu
 		return v, err
 	}
 	return v, nil
+}
+
+// singleflighter is an optional Store extension that deduplicates
+// concurrent cache-fill producers for the same key. *Memory implements
+// it; Remember uses it when available to prevent a thundering herd.
+type singleflighter interface {
+	rememberOnce(ctx context.Context, key string, ttl time.Duration, fn func() ([]byte, error)) ([]byte, error)
+}
+
+// rememberOnce is the single-flight cache-fill for *Memory. The first
+// caller for a missing key becomes the producer (runs fn, Puts the
+// result); concurrent callers for that key block until the producer
+// finishes and then share its value/error. A successful fill is cached;
+// an fn error is shared with current waiters but not cached, so the next
+// Remember retries.
+func (m *Memory) rememberOnce(ctx context.Context, key string, ttl time.Duration, fn func() ([]byte, error)) ([]byte, error) {
+	m.flightMu.Lock()
+	if fl, ok := m.flights[key]; ok {
+		// A producer is already running for this key; wait for it.
+		m.flightMu.Unlock()
+		select {
+		case <-fl.done:
+			if fl.err != nil {
+				return nil, fl.err
+			}
+			// Return a copy so a shared result can't be mutated across
+			// callers.
+			out := make([]byte, len(fl.val))
+			copy(out, fl.val)
+			return out, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	// Re-check the cache under flightMu: another producer may have just
+	// finished and stored the value before we registered.
+	if v, ok, err := m.Get(ctx, key); err == nil && ok {
+		m.flightMu.Unlock()
+		return v, nil
+	}
+	fl := &flight{done: make(chan struct{})}
+	m.flights[key] = fl
+	m.flightMu.Unlock()
+
+	v, err := fn()
+	if err == nil {
+		err = m.Put(ctx, key, v, ttl)
+	}
+	fl.val, fl.err = v, err
+
+	m.flightMu.Lock()
+	delete(m.flights, key)
+	m.flightMu.Unlock()
+	close(fl.done)
+
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, len(v))
+	copy(out, v)
+	return out, nil
 }
 
 // puller is an optional Store extension that reads-and-deletes a key in

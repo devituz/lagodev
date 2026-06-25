@@ -3,6 +3,66 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.26.0 — 2026-06-25
+
+Production-hardening release. A fleet of adversarial test agents (load, fuzz,
+injection, leak, and security probes) was run against every subsystem like a
+real attacker; this release ships the **root-cause fixes** they surfaced plus
+extensive new regression/fuzz/stress tests. `go test -race ./...` green (55
+packages), `go vet` + `gofmt` clean, `govulncheck` clean.
+
+### Fixed — critical
+
+- **`web` — panicking handler returned an empty 200.** The recovery middleware
+  produced an error that never reached the writer, so a panic surfaced as a
+  blank `200 OK` instead of `500`. Recovery now writes the 500 directly (guarded
+  against double-write).
+- **`web` / `router` — `Get("/")` crashed at startup.** A root route rendered an
+  empty mux pattern (`"GET "`), panicking `net/http`; any app with a root route
+  died on `Run`/`Test`. `joinPath` now returns `/` for the empty prefix.
+- **`admin` — panel was open by default.** With no `Authorizer`, every CRUD
+  route served unauthenticated. Changed to **fail-closed**: no authorizer ⇒ all
+  routes 403. Added `WithInsecureAllowAll()` as the explicit opt-in. Constructor
+  signature unchanged; this is a runtime behavior change — apps that relied on
+  the open default must add an `Authorizer` (production) or `WithInsecureAllowAll`.
+- **`validation` — data race on the regex cache.** Concurrent requests using a
+  `regex` rule raced the package-global cache map (a latent
+  `concurrent map writes` fatal). Guarded with a `sync.RWMutex`.
+- **`openapi` — stack overflow on recursive types.** `SchemaOf`/`SchemaFor` had
+  no cycle guard on the inline path; a self-referential struct crashed the
+  process. Added a recursion guard that emits a bounded object schema on cycle.
+
+### Fixed — high / medium
+
+- **`query` — operator injection.** `Where(col, op, val)` / `Having` wrote the
+  caller-supplied operator verbatim into the SQL; now validated against a
+  whitelist (`normalizeOp`), and predicate columns are strictly quoted.
+- **`realtime` — goroutine flood under broadcast storms.** A slow consumer under
+  `DisconnectClient` spawned a teardown goroutine per dropped frame; now a single
+  CAS-guarded teardown per client.
+- **`telescope` — unbounded N+1 map.** Query bookkeeping for never-terminating
+  request ids grew without bound; now FIFO-capped. Added `RequireBasicAuth` for
+  gating the dashboard.
+- **`process` — timeout leaked the child process tree.** `CommandContext` killed
+  only the direct child; a backgrounded grandchild kept the pipe open so `Run`
+  blocked for the child's full lifetime. Now runs the child in its own process
+  group and kills the group on timeout (`WaitDelay` backstop; Windows handled).
+- **`cache` — thundering herd + retention window.** Concurrent `Remember` of a
+  missing key ran the producer N times; added per-key single-flight. Tightened
+  the expired-key sweep interval so write-only short-TTL keys are reclaimed
+  promptly.
+
+### Added — production safety
+
+- **`graphql`** — configurable DoS limits (max depth, selection nodes, aliases,
+  document bytes, token count) and an introspection toggle, enforced before
+  execution. Safe defaults; `Handler(cs, ...Option)` is backward-compatible.
+- New fuzz targets (graphql, query, validation, crypt, search, openapi),
+  stress/load harnesses (realtime, web, orm, queue), and security/injection
+  suites across auth, session, admin, telescope, view, search, httpclient.
+- **`drivers/redis`** — tests no longer require a live server (gated on
+  `REDIS_ADDR` / `-short`), so the suite runs green in CI.
+
 ## v0.25.0 — 2026-06-25
 
 Framework-grade hardening — a full documentation set, completion of the

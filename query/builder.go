@@ -123,10 +123,10 @@ func (b *Builder) addWhere(boolean string, args []any) *Builder {
 			panic("query: Where with 1 arg requires func(*Builder)")
 		}
 	case 2:
-		b.wheres = append(b.wheres, condition{bool: boolean, col: asString(args[0]), op: "=", values: []any{args[1]}})
+		b.wheres = append(b.wheres, condition{bool: boolean, col: asString(args[0]), op: OpEq, values: []any{args[1]}})
 	case 3:
 		b.wheres = append(b.wheres, condition{
-			bool: boolean, col: asString(args[0]), op: strings.ToLower(asString(args[1])), values: []any{args[2]},
+			bool: boolean, col: asString(args[0]), op: normalizeOp(asString(args[1])), values: []any{args[2]},
 		})
 	default:
 		panic("query: Where takes 1, 2 or 3 arguments")
@@ -192,9 +192,10 @@ func (b *Builder) GroupBy(cols ...string) *Builder {
 	return b
 }
 
-// Having adds an AND HAVING.
+// Having adds an AND HAVING. The operator is whitelisted (see normalizeOp); an
+// unsupported operator panics rather than being concatenated into the SQL.
 func (b *Builder) Having(col, op string, value any) *Builder {
-	b.havings = append(b.havings, condition{bool: bAnd, col: col, op: op, values: []any{value}})
+	b.havings = append(b.havings, condition{bool: bAnd, col: col, op: normalizeOp(op), values: []any{value}})
 	return b
 }
 
@@ -204,6 +205,35 @@ func (b *Builder) Having(col, op string, value any) *Builder {
 func (b *Builder) OrderBy(col, dir string) *Builder {
 	b.orders = append(b.orders, orderClause{column: col, dir: normalizeDir(dir)})
 	return b
+}
+
+// normalizeOp whitelists a comparison operator. The operator is rendered
+// verbatim into the SQL (it is a keyword position, never a bound value), so an
+// unvalidated operator would be a SQL-injection vector — e.g.
+// Where("col", userInput, val). Only the operators the builder knows how to
+// compile are accepted; anything else panics rather than being emitted, the
+// same defensive policy used for the ORDER BY direction.
+func normalizeOp(op string) string {
+	switch strings.ToLower(strings.TrimSpace(op)) {
+	case OpEq:
+		return OpEq
+	case OpNe, "!=":
+		return OpNe
+	case OpLt:
+		return OpLt
+	case OpLte:
+		return OpLte
+	case OpGt:
+		return OpGt
+	case OpGte:
+		return OpGte
+	case OpLike:
+		return OpLike
+	case OpILike:
+		return OpILike
+	default:
+		panic("query: unsupported operator " + op)
+	}
 }
 
 // normalizeDir whitelists the ORDER BY direction. Empty defaults to ASC; any
@@ -346,7 +376,10 @@ func (b *Builder) ToSQL() (string, []any, error) {
 		sb.WriteString(" GROUP BY ")
 		quoted := make([]string, len(b.groups))
 		for i, c := range b.groups {
-			quoted[i] = quoteSelectable(g, c)
+			// GROUP BY takes column identifiers here; quote them strictly so a
+			// hostile column name cannot pass through unquoted. Expression
+			// grouping is not part of this builder's safe surface.
+			quoted[i] = quoteColumn(g, c)
 		}
 		sb.WriteString(strings.Join(quoted, ", "))
 	}
@@ -362,7 +395,9 @@ func (b *Builder) ToSQL() (string, []any, error) {
 			if o.raw {
 				parts = append(parts, o.column)
 			} else {
-				parts = append(parts, quoteSelectable(g, o.column)+" "+o.dir)
+				// Non-raw ORDER BY is a column identifier; quote it strictly.
+				// Expression ordering goes through OrderByRaw.
+				parts = append(parts, quoteColumn(g, o.column)+" "+o.dir)
 			}
 		}
 		sb.WriteString(" ORDER BY ")
@@ -491,7 +526,7 @@ func (b *Builder) compileWheres(conds []condition, bindings *int) (string, []any
 			args = append(args, c.args...)
 			*bindings += len(c.args)
 		case c.op == OpIsNull || c.op == OpNotNull:
-			sb.WriteString(quoteSelectable(g, c.col))
+			sb.WriteString(quoteColumn(g, c.col))
 			sb.WriteString(" ")
 			sb.WriteString(strings.ToUpper(c.op))
 		case c.op == OpIn || c.op == OpNotIn:
@@ -503,7 +538,7 @@ func (b *Builder) compileWheres(conds []condition, bindings *int) (string, []any
 				}
 				continue
 			}
-			sb.WriteString(quoteSelectable(g, c.col))
+			sb.WriteString(quoteColumn(g, c.col))
 			sb.WriteString(" ")
 			sb.WriteString(strings.ToUpper(c.op))
 			sb.WriteString(" (")
@@ -516,7 +551,7 @@ func (b *Builder) compileWheres(conds []condition, bindings *int) (string, []any
 			sb.WriteString(")")
 			args = append(args, c.values...)
 		case c.op == OpBetween || c.op == OpNotBetween:
-			sb.WriteString(quoteSelectable(g, c.col))
+			sb.WriteString(quoteColumn(g, c.col))
 			sb.WriteString(" ")
 			sb.WriteString(strings.ToUpper(c.op))
 			sb.WriteString(" ")
@@ -527,7 +562,7 @@ func (b *Builder) compileWheres(conds []condition, bindings *int) (string, []any
 			sb.WriteString(g.Placeholder(*bindings))
 			args = append(args, c.values...)
 		default:
-			sb.WriteString(quoteSelectable(g, c.col))
+			sb.WriteString(quoteColumn(g, c.col))
 			sb.WriteString(" ")
 			sb.WriteString(strings.ToUpper(c.op))
 			sb.WriteString(" ")
@@ -711,6 +746,22 @@ func quoteSelectable(g database.Grammar, s string) string {
 	}
 	if strings.Contains(trim, ".") {
 		return g.Quote(trim)
+	}
+	return g.Quote(trim)
+}
+
+// quoteColumn strictly quotes a column used in a predicate position (WHERE /
+// HAVING / IN / BETWEEN). Unlike quoteSelectable it has NO passthrough escape
+// hatch: an attacker-controlled column containing "(" or " AS " (or any other
+// metacharacter) must not slip into the SQL unquoted. The grammar's Quote
+// wraps the identifier in "..." and doubles embedded quotes, so a hostile
+// column name is rendered as an inert (non-existent) identifier rather than as
+// executable SQL. Dotted "table.col" is preserved (Quote handles the dot). For
+// genuinely dynamic predicate expressions, callers use WhereRaw.
+func quoteColumn(g database.Grammar, s string) string {
+	trim := strings.TrimSpace(s)
+	if trim == "" || trim == "*" {
+		return "*"
 	}
 	return g.Quote(trim)
 }

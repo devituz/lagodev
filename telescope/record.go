@@ -40,7 +40,7 @@ func (r *Recorder) RecordRequest(ctx context.Context, req RequestEntry) Entry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if reqID != "" {
-		delete(r.nplus, reqID)
+		r.dropNPlus(reqID)
 	}
 	return r.recordLocked(Entry{
 		Type:      TypeRequest,
@@ -87,11 +87,7 @@ func (r *Recorder) RecordQuery(ctx context.Context, q QueryEntry) Entry {
 	// occurrence is fine; repeats are the suspicious lazy-loaded N.
 	if reqID != "" {
 		norm := normalizeSQL(q.SQL)
-		seen := r.nplus[reqID]
-		if seen == nil {
-			seen = make(map[string]int)
-			r.nplus[reqID] = seen
-		}
+		seen := r.nplusFor(reqID)
 		seen[norm]++
 		if n := seen[norm]; n > 1 {
 			tags = append(tags, "n+1")

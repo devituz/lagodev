@@ -45,10 +45,22 @@ func (e GqlError) Error() string { return e.Message }
 // path while sibling fields continue. A nil schema or a parse/validation
 // failure yields a Response with Data nil and a single error.
 func Execute(ctx context.Context, cs *CompiledSchema, req Request) Response {
+	return ExecuteWithLimits(ctx, cs, req, DefaultLimits())
+}
+
+// ExecuteWithLimits behaves like Execute but enforces the supplied Limits on the
+// incoming document (size, token count, depth, selection-node count, aliases,
+// introspection) before any resolver runs. A document that violates a limit
+// yields a Response with Data nil and a single bounded error. The zero Limits
+// value disables every check; DefaultLimits returns production-safe ceilings.
+func ExecuteWithLimits(ctx context.Context, cs *CompiledSchema, req Request, limits Limits) Response {
 	if cs == nil {
 		return Response{Errors: []GqlError{{Message: "graphql: nil schema"}}}
 	}
-	doc, err := parseDocument(req.Query)
+	if err := limits.checkDocumentSize(req.Query); err != nil {
+		return Response{Errors: []GqlError{{Message: err.Error()}}}
+	}
+	doc, err := parseDocumentLimited(req.Query, limits.MaxTokens)
 	if err != nil {
 		return Response{Errors: []GqlError{{Message: err.Error()}}}
 	}
@@ -59,8 +71,14 @@ func Execute(ctx context.Context, cs *CompiledSchema, req Request) Response {
 	// Reject fragment-spread cycles before execution: a self-referential or
 	// mutually-recursive fragment would otherwise drive collectFields into
 	// unbounded recursion and crash the process (stack overflow). Per the
-	// GraphQL spec, "Fragments Must Not Form Cycles".
+	// GraphQL spec, "Fragments Must Not Form Cycles". This also guarantees the
+	// spread graph is acyclic so the limit walk below terminates.
 	if err := detectFragmentCycles(doc); err != nil {
+		return Response{Errors: []GqlError{{Message: err.Error()}}}
+	}
+	// Enforce structural cost limits (depth, node count, aliases, introspection)
+	// on the cycle-free document before execution.
+	if err := limits.validate(doc); err != nil {
 		return Response{Errors: []GqlError{{Message: err.Error()}}}
 	}
 

@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"errors"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -13,19 +14,76 @@ import (
 	redislib "github.com/redis/go-redis/v9"
 )
 
-func newRedis(t *testing.T) (*redislib.Client, *miniredis.Miniredis) {
+// clock abstracts the only server-specific capability the time-based
+// queue tests need: advancing the server clock. A real Redis cannot be
+// fast-forwarded, so against REDIS_ADDR the test sleeps instead.
+type clock interface {
+	advance(d time.Duration)
+}
+
+type miniClock struct{ mr *miniredis.Miniredis }
+
+func (c miniClock) advance(d time.Duration) { c.mr.FastForward(d) }
+
+type wallClock struct{}
+
+func (wallClock) advance(d time.Duration) { time.Sleep(d) }
+
+// dialQueueRedis returns a client suitable for the LIST/ZSET-based queue
+// tests plus a clock for time control.
+//
+// Gating rules:
+//   - under -short  → skip (these touch a server / spin a fake one).
+//   - REDIS_ADDR set → dial that real server (clock = wall clock).
+//   - otherwise      → spin an in-process miniredis (clock = fast-forward).
+//
+// The queue driver only uses LIST/ZSET commands, which miniredis emulates
+// reliably, so the default (no REDIS_ADDR) path stays green without a
+// live server.
+func dialQueueRedis(t *testing.T) (*redislib.Client, clock) {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping server-backed test in -short mode")
+	}
+	if addr := os.Getenv("REDIS_ADDR"); addr != "" {
+		rdb := redislib.NewClient(&redislib.Options{Addr: addr})
+		if err := rdb.Ping(context.Background()).Err(); err != nil {
+			t.Fatalf("REDIS_ADDR=%s unreachable: %v", addr, err)
+		}
+		t.Cleanup(func() { _ = rdb.Close() })
+		return rdb, wallClock{}
+	}
 	mr := miniredis.RunT(t)
 	rdb := redislib.NewClient(&redislib.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
-	return rdb, mr
+	return rdb, miniClock{mr}
 }
 
-// --- Broadcaster --------------------------------------------------------
+// dialPubSubRedis is for Pub/Sub-based broadcaster tests. miniredis'
+// Pub/Sub emulation is unreliable with this go-redis/runtime combination
+// (it can deadlock), so these tests REQUIRE a real server via REDIS_ADDR.
+func dialPubSubRedis(t *testing.T) *redislib.Client {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping Pub/Sub test in -short mode")
+	}
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		t.Skip("set REDIS_ADDR=host:port to run Pub/Sub integration tests")
+	}
+	rdb := redislib.NewClient(&redislib.Options{Addr: addr})
+	if err := rdb.Ping(context.Background()).Err(); err != nil {
+		t.Fatalf("REDIS_ADDR=%s unreachable: %v", addr, err)
+	}
+	t.Cleanup(func() { _ = rdb.Close() })
+	return rdb
+}
+
+// --- Broadcaster (Pub/Sub, needs a real server) -------------------------
 
 func TestBroadcaster_PublishToSubscriber(t *testing.T) {
-	rdb, _ := newRedis(t)
-	b := NewBroadcaster(rdb)
+	rdb := dialPubSubRedis(t)
+	b := NewBroadcaster(rdb, WithPrefix(uniquePrefix()))
 	defer b.Close()
 
 	got := make(chan broadcasting.Event, 1)
@@ -51,9 +109,10 @@ func TestBroadcaster_PublishToSubscriber(t *testing.T) {
 }
 
 func TestBroadcaster_PrefixIsolation(t *testing.T) {
-	rdb, _ := newRedis(t)
-	a := NewBroadcaster(rdb, WithPrefix("app-a"))
-	b := NewBroadcaster(rdb, WithPrefix("app-b"))
+	rdb := dialPubSubRedis(t)
+	base := uniquePrefix()
+	a := NewBroadcaster(rdb, WithPrefix(base+"-a"))
+	b := NewBroadcaster(rdb, WithPrefix(base+"-b"))
 	defer a.Close()
 	defer b.Close()
 
@@ -81,8 +140,8 @@ func TestBroadcaster_PrefixIsolation(t *testing.T) {
 }
 
 func TestBroadcaster_Cancel(t *testing.T) {
-	rdb, _ := newRedis(t)
-	b := NewBroadcaster(rdb)
+	rdb := dialPubSubRedis(t)
+	b := NewBroadcaster(rdb, WithPrefix(uniquePrefix()))
 	defer b.Close()
 	var hits int32
 	sub, _ := b.Subscribe(context.Background(), "ch", func(_ context.Context, _ broadcasting.Event) error {
@@ -100,7 +159,7 @@ func TestBroadcaster_Cancel(t *testing.T) {
 }
 
 func TestBroadcaster_Close_RejectsFurtherUse(t *testing.T) {
-	rdb, _ := newRedis(t)
+	rdb := dialPubSubRedis(t)
 	b := NewBroadcaster(rdb)
 	_ = b.Close()
 	if err := b.Publish(context.Background(), broadcasting.Event{Channel: "x"}); !errors.Is(err, broadcasting.ErrClosed) {
@@ -111,11 +170,11 @@ func TestBroadcaster_Close_RejectsFurtherUse(t *testing.T) {
 	}
 }
 
-// --- Queue --------------------------------------------------------------
+// --- Queue (LIST/ZSET, miniredis-backed by default) ---------------------
 
 func TestQueue_PushPopRoundtrip(t *testing.T) {
-	rdb, _ := newRedis(t)
-	q := NewQueue(rdb, "default")
+	rdb, _ := dialQueueRedis(t)
+	q := NewQueue(rdb, "default", QueueWithPrefix(uniquePrefix()))
 	defer q.Purge(context.Background())
 	ctx := context.Background()
 
@@ -132,8 +191,8 @@ func TestQueue_PushPopRoundtrip(t *testing.T) {
 }
 
 func TestQueue_EmptyReturnsErrEmpty(t *testing.T) {
-	rdb, _ := newRedis(t)
-	q := NewQueue(rdb, "default")
+	rdb, _ := dialQueueRedis(t)
+	q := NewQueue(rdb, "default", QueueWithPrefix(uniquePrefix()))
 	_, err := q.Pop(context.Background(), 50*time.Millisecond)
 	if !errors.Is(err, queue.ErrEmpty) {
 		t.Fatalf("want ErrEmpty, got %v", err)
@@ -141,8 +200,9 @@ func TestQueue_EmptyReturnsErrEmpty(t *testing.T) {
 }
 
 func TestQueue_AckDeletes(t *testing.T) {
-	rdb, _ := newRedis(t)
-	q := NewQueue(rdb, "default")
+	rdb, _ := dialQueueRedis(t)
+	q := NewQueue(rdb, "default", QueueWithPrefix(uniquePrefix()))
+	defer q.Purge(context.Background())
 	ctx := context.Background()
 	_ = q.Push(ctx, queue.Job{ID: "j-2", Name: "x", Payload: []byte("p")})
 	j, _ := q.Pop(ctx, time.Second)
@@ -155,8 +215,9 @@ func TestQueue_AckDeletes(t *testing.T) {
 }
 
 func TestQueue_NackRequeuesIncrementsAttempts(t *testing.T) {
-	rdb, _ := newRedis(t)
-	q := NewQueue(rdb, "default")
+	rdb, _ := dialQueueRedis(t)
+	q := NewQueue(rdb, "default", QueueWithPrefix(uniquePrefix()))
+	defer q.Purge(context.Background())
 	ctx := context.Background()
 	_ = q.Push(ctx, queue.Job{ID: "j-3", Name: "x", Payload: []byte("p")})
 	j, _ := q.Pop(ctx, time.Second)
@@ -173,8 +234,9 @@ func TestQueue_NackRequeuesIncrementsAttempts(t *testing.T) {
 }
 
 func TestQueue_NackWithRetryAfter(t *testing.T) {
-	rdb, mr := newRedis(t)
-	q := NewQueue(rdb, "default")
+	rdb, clk := dialQueueRedis(t)
+	q := NewQueue(rdb, "default", QueueWithPrefix(uniquePrefix()))
+	defer q.Purge(context.Background())
 	ctx := context.Background()
 	_ = q.Push(ctx, queue.Job{ID: "j-4", Name: "x", Payload: []byte("p")})
 	j, _ := q.Pop(ctx, time.Second)
@@ -182,16 +244,17 @@ func TestQueue_NackWithRetryAfter(t *testing.T) {
 	if _, err := q.Pop(ctx, 30*time.Millisecond); !errors.Is(err, queue.ErrEmpty) {
 		t.Fatal("must be invisible before delay elapses")
 	}
-	// Advance miniredis clock to expose the delayed job.
-	mr.FastForward(150 * time.Millisecond)
+	// Advance the clock to expose the delayed job.
+	clk.advance(150 * time.Millisecond)
 	if _, err := q.Pop(ctx, 500*time.Millisecond); err != nil {
 		t.Fatalf("Pop after delay: %v", err)
 	}
 }
 
 func TestQueue_DelayedPushBecomesAvailable(t *testing.T) {
-	rdb, mr := newRedis(t)
-	q := NewQueue(rdb, "default")
+	rdb, clk := dialQueueRedis(t)
+	q := NewQueue(rdb, "default", QueueWithPrefix(uniquePrefix()))
+	defer q.Purge(context.Background())
 	ctx := context.Background()
 	_ = q.Push(ctx, queue.Job{
 		ID:          "j-5",
@@ -202,15 +265,16 @@ func TestQueue_DelayedPushBecomesAvailable(t *testing.T) {
 	if _, err := q.Pop(ctx, 30*time.Millisecond); !errors.Is(err, queue.ErrEmpty) {
 		t.Fatal("delayed job must be invisible initially")
 	}
-	mr.FastForward(150 * time.Millisecond)
+	clk.advance(150 * time.Millisecond)
 	if _, err := q.Pop(ctx, 500*time.Millisecond); err != nil {
 		t.Fatalf("delayed Pop: %v", err)
 	}
 }
 
 func TestQueue_OrphanRecovery_AfterVisibilityTimeout(t *testing.T) {
-	rdb, mr := newRedis(t)
-	q := NewQueue(rdb, "default", QueueWithVisibilityTimeout(200*time.Millisecond))
+	rdb, clk := dialQueueRedis(t)
+	q := NewQueue(rdb, "default", QueueWithPrefix(uniquePrefix()), QueueWithVisibilityTimeout(200*time.Millisecond))
+	defer q.Purge(context.Background())
 	ctx := context.Background()
 	_ = q.Push(ctx, queue.Job{ID: "j-6", Name: "x", Payload: []byte("p")})
 	if _, err := q.Pop(ctx, time.Second); err != nil {
@@ -221,15 +285,16 @@ func TestQueue_OrphanRecovery_AfterVisibilityTimeout(t *testing.T) {
 	if _, err := q.Pop(ctx, 50*time.Millisecond); !errors.Is(err, queue.ErrEmpty) {
 		t.Fatal("must stay hidden during visibility window")
 	}
-	mr.FastForward(300 * time.Millisecond)
+	clk.advance(300 * time.Millisecond)
 	if _, err := q.Pop(ctx, time.Second); err != nil {
 		t.Fatalf("orphan recovery failed: %v", err)
 	}
 }
 
 func TestQueue_WorkerEndToEnd(t *testing.T) {
-	rdb, _ := newRedis(t)
-	q := NewQueue(rdb, "default")
+	rdb, _ := dialQueueRedis(t)
+	q := NewQueue(rdb, "default", QueueWithPrefix(uniquePrefix()))
+	defer q.Purge(context.Background())
 	w := queue.NewWorker(q).Poll(20 * time.Millisecond)
 
 	type Job struct{ N int }
@@ -254,4 +319,10 @@ func TestQueue_WorkerEndToEnd(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("handler never ran")
 	}
+}
+
+// uniquePrefix isolates keys/channels per test so runs against a shared
+// real Redis don't collide.
+func uniquePrefix() string {
+	return "lagodevtest-" + time.Now().Format("150405.000000000")
 }

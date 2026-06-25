@@ -20,6 +20,42 @@ type httpRequest struct {
 // unbounded memory use from oversized or hostile payloads.
 const maxBodyBytes = 1 << 20 // 1 MiB
 
+// handlerConfig holds the resolved handler settings. It is built from defaults
+// and mutated by the functional Options passed to Handler.
+type handlerConfig struct {
+	limits      Limits
+	maxBodySize int64
+}
+
+// Option configures a Handler. Options compose; later options override earlier
+// ones. The zero set of options yields DefaultLimits and the default body cap,
+// preserving the handler's historical behaviour for normal traffic.
+type Option func(*handlerConfig)
+
+// WithLimits sets the execution Limits enforced on every request's document.
+// Use DefaultLimits as a base and override individual fields, or pass a custom
+// Limits. The zero Limits value disables all structural checks.
+func WithLimits(l Limits) Option {
+	return func(c *handlerConfig) { c.limits = l }
+}
+
+// WithMaxBodyBytes overrides the maximum request-body size (in bytes) the
+// handler will read before decoding. Values <= 0 leave the default in place.
+// It should be set in concert with Limits.MaxDocumentBytes.
+func WithMaxBodyBytes(n int64) Option {
+	return func(c *handlerConfig) {
+		if n > 0 {
+			c.maxBodySize = n
+		}
+	}
+}
+
+// WithoutIntrospection disables introspection meta-fields (__typename, __schema,
+// __type) for the handler, a common production hardening step.
+func WithoutIntrospection() Option {
+	return func(c *handlerConfig) { c.limits.DisableIntrospection = true }
+}
+
 // Handler returns an http.Handler that executes GraphQL requests against cs and
 // writes the standard {"data":...,"errors":[...]} JSON envelope.
 //
@@ -36,12 +72,16 @@ const maxBodyBytes = 1 << 20 // 1 MiB
 // unreadable body, malformed JSON) yield a JSON error envelope; resolver and
 // validation errors surface through the normal response "errors" array with a
 // 200 status, per GraphQL convention.
-func Handler(cs *CompiledSchema) http.Handler {
+func Handler(cs *CompiledSchema, opts ...Option) http.Handler {
+	cfg := handlerConfig{limits: DefaultLimits(), maxBodySize: maxBodyBytes}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req Request
 		switch r.Method {
 		case http.MethodPost:
-			parsed, ok := decodePost(w, r)
+			parsed, ok := decodePost(w, r, cfg.maxBodySize)
 			if !ok {
 				return
 			}
@@ -58,21 +98,24 @@ func Handler(cs *CompiledSchema) http.Handler {
 			return
 		}
 
-		res := Execute(r.Context(), cs, req)
+		res := ExecuteWithLimits(r.Context(), cs, req, cfg.limits)
 		writeJSON(w, http.StatusOK, res)
 	})
 }
 
 // decodePost reads and decodes a JSON POST body into a Request. It reports
 // ok=false (after writing an error response) on any transport-level failure.
-func decodePost(w http.ResponseWriter, r *http.Request) (Request, bool) {
+func decodePost(w http.ResponseWriter, r *http.Request, maxBody int64) (Request, bool) {
 	if ct := r.Header.Get("Content-Type"); ct != "" {
 		if mt := strings.TrimSpace(strings.SplitN(ct, ";", 2)[0]); mt != "" && mt != "application/json" {
 			writeError(w, http.StatusUnsupportedMediaType, "graphql: expected application/json")
 			return Request{}, false
 		}
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes))
+	if maxBody <= 0 {
+		maxBody = maxBodyBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "graphql: cannot read request body")
 		return Request{}, false

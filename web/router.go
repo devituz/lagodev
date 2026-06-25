@@ -139,6 +139,13 @@ func withRespond(h Handler) Handler {
 
 func (r *Router) joinPath(p string) string {
 	if p == "" || p == "/" {
+		// A root path on a prefix-less router would otherwise yield "",
+		// which net/http's ServeMux rejects ("host/path missing /") and
+		// panics on registration. Normalise to "/" so Get("/") on the
+		// top-level router mounts cleanly.
+		if r.prefix == "" {
+			return "/"
+		}
 		return r.prefix
 	}
 	if r.prefix == "" {

@@ -40,10 +40,14 @@
 //	})
 //	http.Handle("/admin/", http.StripPrefix("/admin", p.Handler()))
 //
-// Security: every response auto-escapes through html/template, mutating
+// Security: the panel is fail-closed by default. With no Authorizer installed
+// it denies every request (HTTP 403) until you configure one via
+// WithAuthorizer — or explicitly opt out of the gate with WithInsecureAllowAll
+// for local/dev use or when the mount is already protected by upstream auth
+// middleware. Every response auto-escapes through html/template, and mutating
 // requests (create/update/delete) are POST-only and CSRF-guarded with a
-// double-submit token, and an optional Authorizer hook gates every action by
-// (request, action, model) and yields 403 on denial.
+// double-submit token. The Authorizer hook gates every action by (request,
+// action, model) and yields 403 on denial.
 package admin
 
 import (
@@ -80,6 +84,11 @@ type Panel struct {
 	title      string
 	basePath   string
 	authorizer Authorizer
+	// allowAll, when true, lets every action through even though no Authorizer
+	// is installed. It is the explicit, opt-in escape hatch for the otherwise
+	// fail-closed default (see WithInsecureAllowAll). Without it and without an
+	// Authorizer, the panel denies every request.
+	allowAll bool
 
 	mu        sync.RWMutex
 	resources map[string]*registered // keyed by slug
@@ -147,8 +156,21 @@ func WithBasePath(base string) Option {
 }
 
 // WithAuthorizer installs an RBAC gate consulted before every action.
+// Installing one is the recommended way to make the panel reachable; the
+// panel denies every request until either an Authorizer or
+// WithInsecureAllowAll is configured.
 func WithAuthorizer(a Authorizer) Option {
 	return func(p *Panel) { p.authorizer = a }
+}
+
+// WithInsecureAllowAll disables the panel's fail-closed default, allowing
+// every action through with no authorization check. It exists only for local
+// development, tests, and demos, or for deployments that gate the mount
+// entirely with external auth middleware. NEVER enable it on a route reachable
+// without an upstream auth layer: it exposes full CRUD over every registered
+// model to anyone who can hit the path. Prefer WithAuthorizer in production.
+func WithInsecureAllowAll() Option {
+	return func(p *Panel) { p.allowAll = true }
 }
 
 // New constructs an empty Panel. Register models on it, then serve Handler().
@@ -298,10 +320,13 @@ func (r *registered) fieldByColumn(col string) (Field, bool) {
 	return Field{}, false
 }
 
-// authorize consults the panel Authorizer (allowing all when nil).
+// authorize consults the panel Authorizer. The default is fail-closed: with no
+// Authorizer installed, every action is denied unless WithInsecureAllowAll was
+// set at construction. This prevents an admin panel mounted without an explicit
+// gate from being reachable unauthenticated — a production footgun.
 func (p *Panel) authorize(r *http.Request, action, model string) bool {
 	if p.authorizer == nil {
-		return true
+		return p.allowAll
 	}
 	return p.authorizer(r, action, model)
 }

@@ -106,47 +106,54 @@ type value struct {
 // parser is a recursive-descent parser over the lexer's token stream. It keeps
 // one token of lookahead and surfaces the source position in every error.
 type parser struct {
-	lex  *lexer
-	tok  token
-	peek *token // single-token pushback buffer
+	lex *lexer
+	tok token
+
+	// maxTokens, when > 0, caps the number of tokens lexed for one document.
+	// Crossing it aborts parsing with a bounded error, defending the parser
+	// against token-flood inputs that pass the byte limit. tokens counts tokens
+	// produced by the underlying lexer.
+	maxTokens int
+	tokens    int
 }
 
-// parseDocument is the package entry point: it lexes+parses src into a
-// document, rejecting unsupported constructs (directives, subscriptions) with a
-// positioned error.
-func parseDocument(src string) (*document, error) {
-	p := &parser{lex: newLexer(src)}
+// parseDocumentLimited lexes+parses src into a document, rejecting unsupported
+// constructs (directives, subscriptions) with a positioned error, and aborts if
+// the lexer produces more than maxTokens tokens (maxTokens <= 0 means
+// unlimited). It is the package entry point for untrusted input.
+func parseDocumentLimited(src string, maxTokens int) (*document, error) {
+	p := &parser{lex: newLexer(src), maxTokens: maxTokens}
 	if err := p.next(); err != nil {
 		return nil, err
 	}
 	return p.parseDoc()
 }
 
-// next advances the parser by one token, draining the pushback buffer first.
-func (p *parser) next() error {
-	if p.peek != nil {
-		p.tok = *p.peek
-		p.peek = nil
-		return nil
-	}
+// lexNext pulls one token from the lexer, enforcing the token cap. All token
+// production routes through here so the cap is honoured on every code path.
+func (p *parser) lexNext() (token, error) {
 	tok, err := p.lex.next()
+	if err != nil {
+		return token{}, err
+	}
+	if tok.kind != tEOF {
+		p.tokens++
+		if p.maxTokens > 0 && p.tokens > p.maxTokens {
+			return token{}, errLimitExceeded{fmt.Sprintf(
+				"graphql: query exceeds max tokens (%d)", p.maxTokens)}
+		}
+	}
+	return tok, nil
+}
+
+// next advances the parser by one token.
+func (p *parser) next() error {
+	tok, err := p.lexNext()
 	if err != nil {
 		return err
 	}
 	p.tok = tok
 	return nil
-}
-
-// lookahead returns the next token without consuming the current one.
-func (p *parser) lookahead() (token, error) {
-	if p.peek == nil {
-		tok, err := p.lex.next()
-		if err != nil {
-			return token{}, err
-		}
-		p.peek = &tok
-	}
-	return *p.peek, nil
 }
 
 // expect consumes the current token, requiring it to be of kind k.

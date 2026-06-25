@@ -132,6 +132,17 @@ func SchemaFor(t reflect.Type) *Schema {
 // schemaFor is the shared worker. reg, when non-nil, causes named struct types
 // to be registered as components and referenced by $ref instead of inlined.
 func schemaFor(t reflect.Type, reg *Registry) *Schema {
+	return schemaForSeen(t, reg, nil)
+}
+
+// schemaForSeen is schemaFor plus a cycle guard for the inline (reg == nil)
+// path. The registry path breaks cycles by reserving a $ref slot in add, but an
+// inline build has no components to point at, so it tracks the struct types on
+// the current recursion path in seen and emits an open object schema when it
+// would otherwise recurse into a type already being built. Without this a
+// self-referential struct (e.g. type Node struct{ Next *Node }) overflows the
+// stack.
+func schemaForSeen(t reflect.Type, reg *Registry, seen map[reflect.Type]bool) *Schema {
 	// Unwrap pointers; a pointer type itself does not change the schema shape
 	// here (nullability is decided per-field in structFieldSchema).
 	for t.Kind() == reflect.Ptr {
@@ -160,18 +171,23 @@ func schemaFor(t reflect.Type, reg *Registry) *Schema {
 		if t.Elem().Kind() == reflect.Uint8 {
 			return &Schema{Type: typeField{"string"}, Format: "byte"}
 		}
-		return &Schema{Type: typeField{"array"}, Items: schemaFor(t.Elem(), reg)}
+		return &Schema{Type: typeField{"array"}, Items: schemaForSeen(t.Elem(), reg, seen)}
 	case reflect.Map:
 		return &Schema{
 			Type:                 typeField{"object"},
-			AdditionalProperties: schemaFor(t.Elem(), reg),
+			AdditionalProperties: schemaForSeen(t.Elem(), reg, seen),
 		}
 	case reflect.Struct:
 		if reg != nil {
 			name := reg.add(t)
 			return &Schema{Ref: "#/components/schemas/" + name}
 		}
-		return structSchema(t, reg)
+		// Inline build: guard against self-referential / mutually-recursive
+		// struct types, which have no $ref to terminate the recursion.
+		if seen[t] {
+			return &Schema{Type: typeField{"object"}}
+		}
+		return structSchemaSeen(t, reg, seen)
 	case reflect.Interface:
 		// An open value: no constraints (any JSON).
 		return &Schema{}
@@ -184,18 +200,32 @@ func schemaFor(t reflect.Type, reg *Registry) *Schema {
 // fields. Embedded (anonymous) struct fields are flattened, matching
 // encoding/json's promotion of their fields.
 func structSchema(t reflect.Type, reg *Registry) *Schema {
+	return structSchemaSeen(t, reg, nil)
+}
+
+func structSchemaSeen(t reflect.Type, reg *Registry, seen map[reflect.Type]bool) *Schema {
 	s := &Schema{
 		Type:       typeField{"object"},
 		Properties: map[string]*Schema{},
 	}
-	collectFields(t, s, reg)
+	// Mark this struct type as on the current path so nested fields that loop
+	// back to it terminate. The registry path uses its own slot reservation, so
+	// this set is only consulted when reg == nil.
+	if reg == nil {
+		if seen == nil {
+			seen = map[reflect.Type]bool{}
+		}
+		seen[t] = true
+		defer delete(seen, t)
+	}
+	collectFields(t, s, reg, seen)
 	if len(s.Required) == 0 {
 		s.Required = nil
 	}
 	return s
 }
 
-func collectFields(t reflect.Type, s *Schema, reg *Registry) {
+func collectFields(t reflect.Type, s *Schema, reg *Registry, seen map[reflect.Type]bool) {
 	for i := 0; i < t.NumField(); i++ {
 		sf := t.Field(i)
 
@@ -208,7 +238,19 @@ func collectFields(t reflect.Type, s *Schema, reg *Registry) {
 			ft = ft.Elem()
 		}
 		if sf.Anonymous && sf.Tag.Get("json") == "" && ft.Kind() == reflect.Struct && ft != timeType {
-			collectFields(ft, s, reg)
+			// A struct that embeds itself (directly or via a cycle) would loop
+			// here; mark the embedded type on the path and skip a re-entry,
+			// mirroring the field-level cycle guard.
+			if reg == nil {
+				if seen[ft] {
+					continue
+				}
+				if seen == nil {
+					seen = map[reflect.Type]bool{}
+				}
+				seen[ft] = true
+			}
+			collectFields(ft, s, reg, seen)
 			continue
 		}
 
@@ -220,7 +262,7 @@ func collectFields(t reflect.Type, s *Schema, reg *Registry) {
 			continue
 		}
 
-		fieldSchema := schemaFor(sf.Type, reg)
+		fieldSchema := schemaForSeen(sf.Type, reg, seen)
 		nullable := sf.Type.Kind() == reflect.Ptr || omitempty
 
 		rules := parseValidate(sf.Tag.Get("validate"))

@@ -133,6 +133,22 @@ func (c *Cmd) Run(ctx context.Context) (Result, error) {
 		defer cancel()
 	}
 	cmd := exec.CommandContext(ctx, c.name, c.args...)
+
+	// Place the child in its own process group (POSIX) so the Cancel hook
+	// can kill the whole tree — not just the direct child. Without this a
+	// child that backgrounds a grandchild (e.g. `sh -c "sleep 30 & wait"`)
+	// leaves the grandchild holding the stdout/stderr pipe open, and Wait
+	// blocks until the grandchild exits even though the child was killed.
+	setProcessGroup(cmd)
+	cmd.Cancel = func() error { return killProcessTree(cmd) }
+
+	// WaitDelay bounds how long Wait blocks after the process is killed
+	// waiting for inherited I/O fds to close. Without it, a leaked
+	// grandchild holding the pipe keeps Run blocked for the grandchild's
+	// full lifetime. After the delay, exec force-closes the I/O and Wait
+	// returns. (Go 1.20+.)
+	cmd.WaitDelay = 2 * time.Second
+
 	if c.dir != "" {
 		cmd.Dir = c.dir
 	}

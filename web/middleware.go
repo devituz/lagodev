@@ -59,8 +59,15 @@ func Recovery(l *log.Logger) Middleware {
 				if rec := recover(); rec != nil {
 					l.Printf("panic %s %s: %v\n%s",
 						c.Request.Method, c.Request.URL.Path, rec, debug.Stack())
+					// The response is written by withRespond as the INNERMOST
+					// chain layer. A panic unwinds past it, so respond() never
+					// runs and the client would otherwise receive an empty 200.
+					// Write the generic 500 here directly. respond() is a no-op
+					// if a body was already (partially) committed before the
+					// panic — never double-writes.
+					c.respond(nil, errInternal)
 					value = nil
-					err = errInternal
+					err = nil
 				}
 			}()
 			return next(c)

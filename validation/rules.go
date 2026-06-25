@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -155,19 +156,26 @@ var (
 	uuidRE     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 	// regexCache memoises compiled user patterns from regex=... rules so the
-	// same pattern is not recompiled per value.
-	regexCache = map[string]*regexp.Regexp{}
+	// same pattern is not recompiled per value. It is guarded by regexCacheMu
+	// because Validate/Map are request-path functions called concurrently.
+	regexCacheMu sync.RWMutex
+	regexCache   = map[string]*regexp.Regexp{}
 )
 
 func compileRegex(pattern string) (*regexp.Regexp, error) {
-	if re, ok := regexCache[pattern]; ok {
+	regexCacheMu.RLock()
+	re, ok := regexCache[pattern]
+	regexCacheMu.RUnlock()
+	if ok {
 		return re, nil
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, err
 	}
+	regexCacheMu.Lock()
 	regexCache[pattern] = re
+	regexCacheMu.Unlock()
 	return re, nil
 }
 

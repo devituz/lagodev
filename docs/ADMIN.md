@@ -240,7 +240,30 @@ than 500.
 
 ## Authorizing the panel
 
-The panel ships no authentication. Gate it two ways — usually both.
+The panel is **fail-closed by default**: with no `Authorizer` installed it
+denies every request with HTTP 403. A misconfigured mount therefore exposes
+nothing — you must explicitly grant access before the panel serves anything.
+Make it reachable one of two ways:
+
+- **`WithAuthorizer(fn)`** — the recommended path. Installs a per-action RBAC
+  gate (see below). This is what production should use.
+- **`WithInsecureAllowAll()`** — the explicit opt-out of the gate. It lets every
+  action through with *no* authorization check. Use it only for local
+  development, tests, and demos, or when the mount is already fully protected by
+  upstream auth middleware. **Never** put it on a route reachable without an
+  upstream auth layer: it exposes full CRUD over every registered model to
+  anyone who can hit the path.
+
+```go
+// Production: gate every action by (request, action, model).
+p := admin.New(admin.WithAuthorizer(myRBAC))
+
+// Local/dev demo only — no auth check at all:
+p := admin.New(admin.WithInsecureAllowAll())
+```
+
+Gate it the rest of the way — usually with both an `Authorizer` and front-door
+middleware.
 
 **1. Front the mount with middleware.** Because `Handler()` is a plain
 `http.Handler`, wrap it with any auth middleware before mounting:
@@ -287,7 +310,8 @@ p := admin.New(
 )
 ```
 
-A nil `Authorizer` allows everything.
+With no `Authorizer` and no `WithInsecureAllowAll()`, the panel denies every
+request (fail-closed). Install one or the other to make it reachable.
 
 ## Customization
 
@@ -313,9 +337,12 @@ overrides.
   the field.
 - **Auto-escaping** — all output goes through `html/template`, so row values
   are escaped on render.
-- **Always gate it** — there is no built-in login. Put the panel behind auth
-  middleware and, for least privilege, an `Authorizer`. Never expose it on a
-  public path unauthenticated.
+- **Fail-closed by default** — there is no built-in login, and the panel denies
+  every request until you install `WithAuthorizer` or explicitly opt out with
+  `WithInsecureAllowAll`. Put the panel behind auth middleware and, for least
+  privilege, an `Authorizer`. Reserve `WithInsecureAllowAll` for local/dev or
+  mounts already protected upstream. Never expose it on a public path
+  unauthenticated.
 - **Serve over TLS** — the CSRF cookie is `SameSite=Lax`; terminate TLS at your
   ingress/proxy and restrict the route to trusted networks where possible.
 - **Register at startup** — register every resource during setup before serving.

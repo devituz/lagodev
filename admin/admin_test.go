@@ -162,7 +162,10 @@ func newPanel(t *testing.T, opts ...Option) (*Panel, *fakeStore) {
 		map[string]any{"id": 1, "name": "Ada", "email_addr": "ada@example.com", "age": 36, "active": true},
 		map[string]any{"id": 2, "name": "Linus", "email_addr": "linus@kernel.org", "age": 54, "active": true},
 	)
-	p := New(opts...)
+	// Default to the insecure allow-all gate so the functional round-trip tests
+	// exercise the handlers; tests that pass their own WithAuthorizer override
+	// this (a later Option wins).
+	p := New(append([]Option{WithInsecureAllowAll()}, opts...)...)
 	p.Register(SampleUser{}, Resource{
 		Source:  store,
 		Search:  []string{"name", "email_addr"},
@@ -459,7 +462,7 @@ func TestPageBoundsOverflow(t *testing.T) {
 func TestListSurvivesOverflowPage(t *testing.T) {
 	store := newFakeStore("id", "")
 	store.seed(map[string]any{"id": 1, "name": "a", "email_addr": "x"})
-	p := New()
+	p := New(WithInsecureAllowAll())
 	p.Register(SampleUser{}, Resource{Source: store}) // default perPage
 	rec := do(t, p, http.MethodGet, "/sample_user?page=4611686018427387904", nil, "")
 	if rec.Code != http.StatusOK {
@@ -470,7 +473,7 @@ func TestListSurvivesOverflowPage(t *testing.T) {
 func TestHTMLAutoEscaping(t *testing.T) {
 	store := newFakeStore("id", "")
 	store.seed(map[string]any{"id": 1, "name": "<script>alert(1)</script>", "email_addr": "x@x"})
-	p := New()
+	p := New(WithInsecureAllowAll())
 	p.Register(SampleUser{}, Resource{Source: store, Search: []string{"name"}})
 	rec := do(t, p, http.MethodGet, "/sample_user", nil, "")
 	body := rec.Body.String()

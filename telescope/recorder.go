@@ -13,6 +13,16 @@ import (
 // not set.
 const DefaultCapacity = 500
 
+// maxNPlusRequests caps how many in-flight request ids the N+1 accumulator
+// tracks at once. The per-request bookkeeping is normally evicted by
+// RecordRequest when the request completes (see RecordRequest), but a caller
+// that records queries under a request id that never terminates with a
+// matching RecordRequest (e.g. a background context that reuses
+// ContextWithRequestID, or an aborted request) would otherwise grow the map
+// without bound. When the ceiling is reached the oldest tracked id is dropped,
+// keeping the map bounded regardless of caller behaviour.
+const maxNPlusRequests = 4096
+
 // Options configures a Recorder.
 type Options struct {
 	// Capacity is the maximum number of entries kept in the ring buffer.
@@ -37,6 +47,11 @@ type Recorder struct {
 	// nplus tracks, per request id, how many times each normalised SQL
 	// statement has been seen so the N+1 heuristic can flag repeats.
 	nplus map[string]map[string]int
+	// nplusOrder records the request ids in nplus in insertion order so the
+	// oldest can be evicted once maxNPlusRequests is exceeded. It stays in
+	// lock-step with nplus: an id is appended when first inserted and removed
+	// when the id is dropped (by RecordRequest or by eviction).
+	nplusOrder []string
 }
 
 // NewRecorder returns a ready Recorder.
@@ -83,6 +98,40 @@ func (r *Recorder) recordLocked(e Entry) Entry {
 		r.full = true
 	}
 	return e
+}
+
+// nplusFor returns the per-statement counter map for reqID, creating it (and
+// recording its insertion order) on first use. When inserting a new id would
+// exceed maxNPlusRequests, the oldest tracked id is evicted first so the map
+// stays bounded even if callers never terminate their request ids with a
+// RecordRequest. Assumes r.mu is held.
+func (r *Recorder) nplusFor(reqID string) map[string]int {
+	if seen := r.nplus[reqID]; seen != nil {
+		return seen
+	}
+	if len(r.nplus) >= maxNPlusRequests && len(r.nplusOrder) > 0 {
+		oldest := r.nplusOrder[0]
+		r.nplusOrder = r.nplusOrder[1:]
+		delete(r.nplus, oldest)
+	}
+	seen := make(map[string]int)
+	r.nplus[reqID] = seen
+	r.nplusOrder = append(r.nplusOrder, reqID)
+	return seen
+}
+
+// dropNPlus removes reqID's accumulator and its order entry. Assumes r.mu held.
+func (r *Recorder) dropNPlus(reqID string) {
+	if _, ok := r.nplus[reqID]; !ok {
+		return
+	}
+	delete(r.nplus, reqID)
+	for i, id := range r.nplusOrder {
+		if id == reqID {
+			r.nplusOrder = append(r.nplusOrder[:i], r.nplusOrder[i+1:]...)
+			break
+		}
+	}
 }
 
 // newID returns a process-unique id. It combines a random prefix with a
@@ -161,6 +210,7 @@ func (r *Recorder) Reset() {
 	r.next = 0
 	r.full = false
 	r.nplus = make(map[string]map[string]int)
+	r.nplusOrder = nil
 }
 
 // --- request id context plumbing ---

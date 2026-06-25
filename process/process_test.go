@@ -80,6 +80,31 @@ func TestRun_ContextCancel(t *testing.T) {
 	}
 }
 
+// TestRun_TimeoutKillsBackgroundedGrandchild guards the root-cause fix:
+// a child that backgrounds a grandchild (which inherits the stdout/stderr
+// pipe) must not keep Run blocked for the grandchild's full lifetime.
+// Setpgid + a process-group kill reaps the whole tree so Run returns
+// promptly with ErrTimeout.
+func TestRun_TimeoutKillsBackgroundedGrandchild(t *testing.T) {
+	skipIfWindows(t)
+	start := time.Now()
+	// `sleep 30 &` backgrounds a grandchild holding the inherited pipe;
+	// `wait` keeps the shell alive so the pipe stays open until the
+	// grandchild dies.
+	_, err := Command("sh", "-c", "sleep 30 & wait").
+		Timeout(200 * time.Millisecond).
+		Run(context.Background())
+	elapsed := time.Since(start)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("want ErrTimeout, got %v", err)
+	}
+	// Generous bound: WaitDelay alone caps this at ~2s; the group kill
+	// makes it sub-second. Anything near 30s means the tree leaked.
+	if elapsed > 5*time.Second {
+		t.Fatalf("Run blocked %v after timeout — grandchild not reaped", elapsed)
+	}
+}
+
 func TestRun_StdinPipedIn(t *testing.T) {
 	skipIfWindows(t)
 	r, err := Command("cat").Stdin(strings.NewReader("piped\n")).Run(context.Background())

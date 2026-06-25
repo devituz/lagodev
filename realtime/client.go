@@ -28,7 +28,21 @@ type Client struct {
 	channels map[string]struct{}
 
 	closeOnce sync.Once
+	closing   uint32 // set once a teardown goroutine has been launched
 	drops     uint64
+}
+
+// triggerClose launches at most one teardown goroutine for the client.
+// enqueueMsg and writeLoop both detect failure (overflow under
+// DisconnectClient, or a write error) and must not block the caller, so they
+// tear down asynchronously. Without this guard a broadcast storm to a single
+// stalled client would spawn one goroutine per overflow — an unbounded
+// goroutine flood under production scale. closeOnce still makes Close
+// idempotent; this caps the transient goroutines at one per client.
+func (c *Client) triggerClose() {
+	if atomic.CompareAndSwapUint32(&c.closing, 0, 1) {
+		go c.Close()
+	}
 }
 
 // ID returns the Hub-assigned client identifier.
@@ -64,7 +78,7 @@ func (c *Client) writeLoop() {
 			return
 		case m := <-c.outbox:
 			if err := c.conn.WriteMessage(m.typ, m.data); err != nil {
-				go c.Close()
+				c.triggerClose()
 				return
 			}
 		}
@@ -90,7 +104,7 @@ func (c *Client) enqueueMsg(m outMsg) {
 		switch c.hub.slowPolicy {
 		case DisconnectClient:
 			c.hub.logger("realtime: disconnecting slow client %s (outbox full)", c.id)
-			go c.Close()
+			c.triggerClose()
 		default:
 			atomic.AddUint64(&c.drops, 1)
 			c.hub.logger("realtime: dropping frame to slow client %s (outbox full)", c.id)

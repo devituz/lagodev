@@ -223,6 +223,68 @@ func TestConcurrentReservers_NoErrorsNoDoubleProcessing(t *testing.T) {
 	}
 }
 
+// TestVisibilityTimeout_TwoWorkersNoDoubleProcessWithinWindow asserts
+// that once one worker reserves a job, a second worker polling the same
+// queue cannot also claim it until the visibility timeout elapses — and
+// then it reappears exactly once. Regression for double-processing
+// within the visibility window.
+func TestVisibilityTimeout_TwoWorkersNoDoubleProcessWithinWindow(t *testing.T) {
+	conn := newConn(t)
+	const visTout = 250 * time.Millisecond
+	q, err := New(conn, WithVisibilityTimeout(visTout))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if err := q.Setup(context.Background()); err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := q.Push(ctx, queue.Job{ID: "vis-1", Name: "x", Payload: []byte("p")}); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+
+	// Worker A reserves the job and abandons it (simulating a crash mid-flight).
+	a, err := q.Pop(ctx, time.Second)
+	if err != nil {
+		t.Fatalf("worker A Pop: %v", err)
+	}
+	if a.ID != "vis-1" {
+		t.Fatalf("worker A got %q", a.ID)
+	}
+
+	// Worker B repeatedly polls during the visibility window: it must
+	// never see the still-reserved job.
+	bDeadline := time.Now().Add(visTout - 50*time.Millisecond)
+	for time.Now().Before(bDeadline) {
+		if _, err := q.Pop(ctx, 20*time.Millisecond); !errors.Is(err, queue.ErrEmpty) {
+			t.Fatalf("worker B claimed a reserved job within the visibility window: err=%v", err)
+		}
+	}
+
+	// After the timeout, the orphaned job becomes visible again — and
+	// exactly one of the workers can reclaim it.
+	time.Sleep(visTout)
+	b, err := q.Pop(ctx, time.Second)
+	if err != nil {
+		t.Fatalf("orphan never re-delivered after visibility timeout: %v", err)
+	}
+	if b.ID != "vis-1" {
+		t.Fatalf("worker B got %q, want vis-1", b.ID)
+	}
+	if b.Attempts != 1 {
+		t.Fatalf("recovered job attempts = %d, want 1", b.Attempts)
+	}
+
+	// Ack it; the queue must now be empty (no duplicate row lingering).
+	if err := q.Ack(ctx, b.ID); err != nil {
+		t.Fatalf("Ack: %v", err)
+	}
+	if q.Len() != 0 {
+		t.Fatalf("Len after Ack = %d, want 0", q.Len())
+	}
+}
+
 func TestWorkerEndToEnd_AgainstSQL(t *testing.T) {
 	q := newQueue(t)
 	w := queue.NewWorker(q).Poll(10 * time.Millisecond)

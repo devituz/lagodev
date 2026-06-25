@@ -310,17 +310,60 @@ rec.Reset()                                         // drop everything
   the payload sizes you record; large query bindings or cached values multiply
   the per-entry cost.
 
-- **Gate the dashboard.** The dashboard exposes SQL, bindings, log context and
-  stack traces — never expose it publicly. Mount it only in dev, or put it
-  behind authentication / an IP allowlist / an internal-only route. A simple
-  guard:
+- **The dashboard is unauthenticated by design — you must gate it.** `Handler`
+  is deliberately auth-agnostic: mounted bare it serves SQL, bindings, log
+  context, request IPs and stack traces to *anyone* who can reach the route.
+  Never expose it publicly. Pick one of, in order of preference:
 
-  ```go
-  if cfg.Env != "production" {
-      mux.Handle("/telescope/", http.StripPrefix("/telescope",
-          rec.Handler(telescope.HandlerOptions{})))
-  }
-  ```
+  1. **Don't mount it in production at all** — the safest posture. Mount it only
+     when the environment is non-production:
+
+     ```go
+     if cfg.Env != "production" {
+         mux.Handle("/telescope/", http.StripPrefix("/telescope",
+             rec.Handler(telescope.HandlerOptions{})))
+     }
+     ```
+
+  2. **Gate it with HTTP Basic auth** when it must be reachable on a network
+     that isn't already private. `RequireBasicAuth` wraps the dashboard handler;
+     it compares credentials in constant time and answers `401` +
+     `WWW-Authenticate` on any mismatch. It panics at construction if both the
+     username and password are empty, so a misconfigured deploy fails loudly
+     instead of silently exposing the dashboard:
+
+     ```go
+     dash := rec.Handler(telescope.HandlerOptions{})
+     mux.Handle("/telescope/", http.StripPrefix("/telescope",
+         telescope.RequireBasicAuth("ops", os.Getenv("TELESCOPE_PASSWORD"), dash)))
+     ```
+
+     Source the password from config/secret store, never a literal. Pair it with
+     TLS so the credentials aren't sent in the clear.
+
+  3. **Mount it behind your existing app middleware** — session auth, an IP
+     allowlist, a reverse-proxy `auth_request`, or a VPN-only internal route.
+     Because `Handler` adds no auth of its own, whatever gate you wrap it in is
+     the only gate; there is no built-in bypass.
+
+  The `POST /clear` endpoint (destructive — wipes the whole buffer) lives under
+  the same handler, so it is covered by whichever gate you choose above.
+
+- **Recorded data is rendered safely.** Everything reaches the browser through
+  `html/template`, so adversarial values — a `<script>` payload smuggled in via
+  a request path, query string, exception message, log context, or a
+  user-controlled `X-Forwarded-For` / `X-Request-ID` header — is HTML-escaped,
+  not executed. This is a stored-XSS defense and is covered by regression tests
+  (`security_test.go`). Gating per above is still required: escaping prevents
+  XSS, it does not stop an unauthenticated viewer from *reading* the leaked SQL,
+  IPs and stack traces.
+
+- **Internal bookkeeping is bounded.** Besides the ring buffer, the N+1
+  accumulator (`nplus`) is normally drained per request by `RecordRequest`. As a
+  defense against callers that record queries under request ids that never
+  terminate (background contexts reusing `ContextWithRequestID`, aborted
+  requests), the accumulator is also hard-capped — once it reaches an internal
+  ceiling the oldest tracked id is evicted, so it can never grow without bound.
 
 - **Recording is always-on but cheap.** `Record*` takes a single mutex and
   writes one slot in the ring buffer; the N+1 heuristic is an O(1) map bump per

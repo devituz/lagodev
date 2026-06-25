@@ -30,8 +30,12 @@ func Example() {
 		map[string]any{"id": 2, "name": "Linus", "email": "linus@example.com"},
 	)
 
-	// Register the model and mount the panel under /admin.
-	p := admin.New(admin.WithTitle("Acme Admin"))
+	// Register the model and mount the panel under /admin. The panel is
+	// fail-closed: with no Authorizer it denies every request, so this example
+	// opts out of the gate with WithInsecureAllowAll for a self-contained demo.
+	// Production code installs WithAuthorizer (and/or upstream auth middleware)
+	// instead.
+	p := admin.New(admin.WithTitle("Acme Admin"), admin.WithInsecureAllowAll())
 	p.Register(User{}, admin.Resource{
 		Source: src,
 		Search: []string{"name", "email"},

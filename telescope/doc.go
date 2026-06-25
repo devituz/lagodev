@@ -40,11 +40,16 @@
 // # Dashboard
 //
 // Handler returns an http.Handler serving an HTML dashboard plus a small JSON
-// API. Everything is rendered through html/template, so payloads are
-// auto-escaped and the dashboard is safe to expose untrusted recorded data:
+// API. Everything is rendered through html/template, so recorded payloads are
+// auto-escaped (a stored-XSS defense) even when they contain untrusted data:
 //
 //	mux.Handle("/telescope/", http.StripPrefix("/telescope",
 //		rec.Handler(telescope.HandlerOptions{})))
+//
+// The Handler is deliberately auth-agnostic: it exposes SQL, bindings, request
+// IPs, log context and stack traces to anyone who can reach it. Never mount it
+// publicly. Gate it with RequireBasicAuth, your own app middleware, or simply
+// do not mount it in production. See docs/TELESCOPE.md for the prod-safe wiring.
 //
 // Routes (relative to the mount point):
 //

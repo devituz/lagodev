@@ -20,6 +20,30 @@
 //
 // Errors from the underlying transport are wrapped; non-2xx responses
 // are NOT errors (callers inspect resp.Status()).
+//
+// # Safety notes (caller responsibilities)
+//
+// SSRF: this client issues requests to whatever URL it is given and uses
+// the stdlib http.Client default redirect policy, which follows up to 10
+// redirects without restriction. It does NOT validate the destination
+// host, block private/link-local/loopback ranges, or pin redirects to an
+// allowlist. If you pass user-controlled URLs (or talk to an upstream
+// that can redirect you to one), guard against SSRF at the caller level
+// — e.g. validate the host, or install a Transport whose DialContext
+// rejects private address ranges. See Transport.
+//
+// Retry idempotency: Retry retries on transport errors and on 5xx / 429
+// responses for every verb, including PostJSON/PutJSON/PatchJSON. The
+// request body is buffered once and replayed on each attempt. Retrying a
+// non-idempotent write can cause duplicate side effects if the upstream
+// is not idempotent or does not de-duplicate (e.g. via an idempotency
+// key). Only enable Retry for such verbs against upstreams you know are
+// safe to retry.
+//
+// Response cap: response bodies are bounded by MaxResponseBytes
+// (DefaultMaxResponseBytes by default) so a hostile or runaway server
+// cannot OOM the process. Bodies exceeding the cap fail with
+// ErrResponseTooLarge.
 package httpclient
 
 import (
