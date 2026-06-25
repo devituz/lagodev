@@ -64,8 +64,8 @@ const (
 	kindHistogram
 )
 
-// Registry is the default in-memory Meter. It also renders Prometheus text
-// exposition output (see WriteProm in expose.go).
+// Registry is the default in-memory Meter. MetricsHandler renders it in the
+// Prometheus text exposition format (see metrics_handler.go).
 type Registry struct {
 	mu      sync.RWMutex
 	metrics map[string]*metricFamily

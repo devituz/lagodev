@@ -6,8 +6,8 @@
 // Counter, Gauge, Histogram) so that the stdlib default implementation can
 // be swapped for a real backend (for example OpenTelemetry) through an
 // adapter sub-module without touching call sites. A Provider bundles a
-// Tracer, a Meter and an *slog.Logger and can be installed as a swappable
-// global default or injected explicitly.
+// Tracer and a Registry (the default Meter) so the integration layer wires
+// from one object.
 //
 // Everything here uses only the Go standard library. No OpenTelemetry or
 // Prometheus client dependency is required:
@@ -24,13 +24,13 @@
 //
 // The middleware and helpers are returned for the caller to apply; this
 // package never edits web, orm or other packages. Wrap an http.Handler with
-// HTTPMiddleware, wrap an http.RoundTripper with RoundTripper, time a query
-// with TimeQuery and record cache hits with NewCacheStats.
+// Middleware, wrap an http.RoundTripper with NewRoundTripper, and expose the
+// registry with MetricsHandler. A Provider bundles a Tracer and a Registry so
+// the whole stack wires from one object.
 //
 // # Example
 //
-//	p := observability.NewProvider(observability.Options{ServiceName: "api"})
-//	observability.SetGlobal(p)
+//	p := observability.NewProvider(nil, nil) // default Tracer + Registry
 //
 //	mux := http.NewServeMux()
 //	mux.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +40,6 @@
 //	})
 //	mux.Handle("/metrics", p.MetricsHandler())
 //
-//	srv := observability.HTTPMiddleware(p)(mux)
+//	srv := p.Middleware()(mux)
 //	http.ListenAndServe(":8080", srv)
 package observability

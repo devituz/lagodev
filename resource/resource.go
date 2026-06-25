@@ -45,7 +45,7 @@
 // # Web integration
 //
 //	func (h *Handler) Show(c *web.Context) (any, error) {
-//	    u, err := h.users.Find(c.Context(), id)
+//	    u, err := h.users.Find(c.Ctx(), id)
 //	    if err != nil {
 //	        return nil, err
 //	    }

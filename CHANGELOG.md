@@ -3,6 +3,77 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## v0.25.0 — 2026-06-25
+
+Framework-grade hardening — a full documentation set, completion of the
+resilience and observability packages to match their advertised APIs, search
+auto-indexing, and a repo-wide dependency-security sweep. All code changes are
+**additive** and live in the main module, so `go get
+github.com/devituz/lagodev@v0.25.0` is backward-compatible — no existing API
+changed. New code ships regression tests (`go test -race` green), `go vet` +
+`gofmt` clean, and `govulncheck` reports no vulnerabilities.
+
+### Added — resilience primitives
+
+The `resilience` package previously shipped only the circuit breaker. The four
+primitives its package doc advertises are now implemented, each sharing the
+`Operation`/`Middleware` shape so they compose with `Wrap`/`Do[T]`:
+
+- **`Retry`** — configurable `MaxAttempts` with pluggable `Backoff` (constant,
+  exponential, exponential-with-jitter via an injectable `JitterSource`), a
+  `RetryIf` predicate, and context-aware sleeps through the injectable `Clock`.
+- **`Timeout`** — bounds each attempt, returns `ErrTimeout`, cancels the derived
+  context, leaks no goroutine.
+- **`Bulkhead`** — semaphore concurrency limiter with bounded queue; returns
+  `ErrBulkheadFull`.
+- **`RateLimiter`** — token bucket (`Rate`/`Burst`) with blocking `Execute` and
+  non-blocking `Allow`; returns `ErrRateLimited`.
+
+### Added — observability HTTP integration
+
+The `observability` package gained the integration layer its doc advertised,
+built on the existing tracing/metrics/propagation primitives:
+
+- **`Middleware`** — per-request server span (continues an incoming
+  `traceparent`), request count + latency histogram + in-flight gauge, status
+  capture, trace-id response header.
+- **`NewRoundTripper`** — client-side span + `traceparent` injection + outbound
+  metrics for outgoing HTTP calls.
+- **`MetricsHandler`** — Prometheus text exposition of the registry (stdlib
+  only, no client dependency).
+- **`Provider`** — one-call bundling of a `Tracer` + `Registry` with the
+  middlewares as methods.
+
+### Added — search auto-indexing
+
+- **`search.Searchable`** + **`search.Indexer`** — opt a model into a search
+  `Engine` via `SearchIndex()`/`SearchDocument()`; `Index`/`Delete`/`Backfill`
+  helpers and an ORM-hook wiring pattern. Kept ORM-agnostic to avoid coupling
+  `search` to `orm`.
+
+### Added — documentation
+
+- **24 new guides under `docs/`** covering every subsystem: Authentication,
+  Authorization, Session, Encryption, Container/DI, Admin, GraphQL, Realtime,
+  Telescope, Views, Observability, Search, Resilience, Queue, API resources,
+  OpenAPI, Cache, Events, Mail, Scheduling, Validation, Localization, HTTP
+  client, and Database. Plus a **Comparison** vs Laravel/Django/NestJS/Express
+  and a **Benchmarks** guide with measured framework-overhead numbers.
+- **`benchmarks/`** — added micro-benchmarks for router dispatch, middleware
+  chain, bind+validate, ORM query build, resource serialization, collection
+  ops, and DI resolution (`b.ReportAllocs()` throughout).
+- **README** rebranded from "template" to a full-stack framework landing page;
+  **`docs/INDEX.md`** reorganized by subsystem.
+
+### Security
+
+- Cleared all open Dependabot advisories across submodules and examples:
+  `google.golang.org/grpc` v1.66.0 → v1.81.1 (GHSA-p77j-4mvh-x3m3, critical),
+  `github.com/gofiber/fiber/v2` → v2.52.13 (two criticals),
+  `github.com/redis/go-redis/v9` → v9.21.0, `github.com/go-chi/chi/v5` → v5.3.0,
+  and `golang.org/x/crypto` / `golang.org/x/net` bumped past their advisories in
+  `adapters/grpc`. All example modules pinned to lagodev v0.24.0.
+
 ## v0.24.0 — 2026-06-25
 
 Gap-matrix completion — auth breadth, server-rendered UX, observability,

@@ -38,3 +38,4 @@ examples/chi/chi
 examples/echo/echo
 examples/fiber/fiber
 examples/gin/gin
+firebase-debug.log

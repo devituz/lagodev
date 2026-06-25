@@ -10,8 +10,10 @@
 //     queries are parameterized; the SQL generation is unit-tested independently
 //     of a live server.
 //
-// A Searchable model hook lets ORM rows opt into indexing without coupling the
-// search package to the orm package.
+// A Searchable model interface plus an Indexer helper let ORM rows opt into
+// indexing without coupling the search package to the orm package: a model
+// describes its Document, and the application wires Index/Delete into its ORM
+// lifecycle hooks. See Searchable and Indexer.
 //
 // Basic usage:
 //
