@@ -91,7 +91,7 @@ A layout is an ordinary template that yields to its child through a block:
 </html>
 ```
 
-A view declares which layout wraps it with a `{{layout "name"}}` directive
+A view declares which layout wraps it with a <code v-pre>{{layout "name"}}</code> directive
 **on its first line** (after optional whitespace), then redefines the
 `content` block:
 
@@ -108,7 +108,7 @@ same render data passed to `Render`.
 
 ### Inline content (no `define`)
 
-The `{{define "content"}}` wrapper is the documented style, but it is
+The <code v-pre>{{define "content"}}</code> wrapper is the documented style, but it is
 optional. If a view declares a layout and writes its body inline (without
 a `define`), the whole body becomes the `content` block:
 
@@ -118,7 +118,7 @@ a `define`), the whole body becomes the `content` block:
 ```
 
 renders identically to the `define` version above. Either way, a view
-**without** a `{{layout}}` directive is rendered standalone — the file's
+**without** a <code v-pre>{{layout}}</code> directive is rendered standalone — the file's
 body is executed directly.
 
 Two views may share the same layout safely: each view's `content` tree is
@@ -131,7 +131,7 @@ A view referencing a layout that does not exist yields
 ## Partials & components
 
 Every loaded template — layout, page, or fragment — is addressable by its
-view name, so partials and components are just `{{template "name" .}}`. A
+view name, so partials and components are just <code v-pre>{{template "name" .}}</code>. A
 fragment is any template file that does **not** declare a layout:
 
 ```html

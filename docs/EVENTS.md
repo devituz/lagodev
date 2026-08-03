@@ -445,5 +445,3 @@ _ = mgr.Send(context.Background(), User{Email: "a@x"}, WelcomeNotification{Name:
 - **Panics in listeners are contained,** but a recovered panic still counts as a
   failed listener — monitor the joined error so a silently panicking listener
   does not go unnoticed.
-</content>
-</invoke>

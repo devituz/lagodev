@@ -412,5 +412,3 @@ func NewNonNull(t Type) *NonNull
 ```
 
 Run `go doc github.com/devituz/lagodev/graphql` for the full surface.
-</content>
-</invoke>

@@ -1,89 +1,44 @@
-# Documentation index
+---
+layout: home
 
-A full-stack Go web framework — batteries included. Start with **Getting started**,
-then dive into any subsystem below.
+hero:
+  name: Lagodev
+  text: A full-stack web framework for Go
+  tagline: Batteries included. ORM, migrations, auth, queue, realtime, admin — one cohesive framework where every subsystem shares the same connection, config, container, and logger.
+  actions:
+    - theme: brand
+      text: Get started
+      link: /GETTING_STARTED
+    - theme: alt
+      text: View on GitHub
+      link: https://github.com/devituz/lagodev
+    - theme: alt
+      text: Compare to Laravel
+      link: /COMPARISON
 
-## Getting started
-
-| Topic                              | File                                           | Audience                       |
-|------------------------------------|------------------------------------------------|--------------------------------|
-| 10-minute introduction             | [Getting started](GETTING_STARTED.md)          | First-time users               |
-| Architecture deep-dive             | [Architecture](ARCHITECTURE.md)                | Contributors                   |
-| Configuration: `.env` & `lago.json`| [Configuration](CONFIGURATION.md)              | Per-environment deployments    |
-| `lago` / `artisan` CLI             | [CLI](CLI.md)                                  | Generators, migrate, db:*      |
-| vs Laravel / Django / NestJS / Express | [Comparison](COMPARISON.md)               | Evaluating the framework       |
-| Benchmarks & how to run them       | [Benchmarks](BENCHMARKS.md)                    | Performance-minded             |
-
-## HTTP & presentation
-
-| Topic                              | File                                           |
-|------------------------------------|------------------------------------------------|
-| Web framework (routing, middleware, requests) | [Web](WEB.md)                       |
-| Templating & views                 | [Views](VIEWS.md)                              |
-| API resources & serializers, collections | [API resources](API_RESOURCES.md)       |
-| OpenAPI 3.1 spec + typed client codegen | [OpenAPI](OPENAPI.md)                     |
-| GraphQL schema & execution         | [GraphQL](GRAPHQL.md)                          |
-| HTTP client                        | [HTTP client](HTTP_CLIENT.md)                  |
-| Real-time WebSocket gateway & broadcasting | [Realtime](REALTIME.md)                |
-
-## Data
-
-| Topic                              | File                                           |
-|------------------------------------|------------------------------------------------|
-| ORM — querying, hooks, casts       | [ORM](ORM.md)                                  |
-| Connections, query builder, relations, seeders | [Database](DATABASE.md)            |
-| Migrations & schema DSL            | [Migrations](MIGRATIONS.md)                    |
-| Factories & seeders                | [Factories](FACTORIES.md)                      |
-| Full-text search                   | [Search](SEARCH.md)                            |
-| Caching                            | [Cache](CACHE.md)                              |
-
-## Security & identity
-
-| Topic                              | File                                           |
-|------------------------------------|------------------------------------------------|
-| Authentication (guard/session/JWT/OAuth/account) | [Authentication](AUTHENTICATION.md) |
-| Authorization (gates & policies)   | [Authorization](AUTHORIZATION.md)              |
-| Sessions                           | [Session](SESSION.md)                          |
-| Encryption, hashing, signing       | [Encryption](ENCRYPTION.md)                    |
-
-## Background work & messaging
-
-| Topic                              | File                                           |
-|------------------------------------|------------------------------------------------|
-| Queues, jobs & dashboard           | [Queue](QUEUE.md)                              |
-| Task scheduling & processes        | [Scheduling](SCHEDULING.md)                    |
-| Events & notifications             | [Events](EVENTS.md)                            |
-| Mail (SMTP, SendGrid, Mailgun)     | [Mail](MAIL.md)                                |
-
-## Architecture, ops & cross-cutting
-
-| Topic                              | File                                           |
-|------------------------------------|------------------------------------------------|
-| Dependency injection & app lifecycle | [Container](CONTAINER.md)                    |
-| Validation                         | [Validation](VALIDATION.md)                    |
-| Resilience (breaker, retry, timeout, bulkhead, rate limit) | [Resilience](RESILIENCE.md) |
-| Observability (OpenTelemetry tracing/metrics) | [Observability](OBSERVABILITY.md)   |
-| Telescope debug dashboard          | [Telescope](TELESCOPE.md)                      |
-| Admin panel                        | [Admin](ADMIN.md)                              |
-| Localization (i18n) & dates (carbon) | [Localization](LOCALIZATION.md)              |
-| Integrating with Gin / Fiber / Echo | [Framework integration](FRAMEWORK_INTEGRATION.md) |
-
-## Running examples
-
-```bash
-# Full showcase (3 models, FK, seeders, services, controllers)
-cd examples/blog && go run .
-
-# Framework comparisons (each has its own go.mod)
-cd examples/gin    && go run .
-cd examples/fiber  && go run .
-cd examples/echo   && go run .
-cd examples/chi    && go run .
-```
-
-## Quick links
-
-- **Source**: <https://github.com/devituz/lagodev>
-- **API reference**: <https://pkg.go.dev/github.com/devituz/lagodev>
-- **Latest release**: see [GitHub Releases](https://github.com/devituz/lagodev/releases)
-- **CHANGELOG**: [CHANGELOG.md](../CHANGELOG.md)
+features:
+  - title: ORM with relations
+    details: Generic Query[T] with HasOne, HasMany, BelongsTo, BelongsToMany, soft deletes, and lifecycle hooks — zero codegen.
+    link: /ORM
+  - title: Migrations & schema
+    details: Transactional migrations with advisory locks across SQLite, MySQL, and PostgreSQL. Up and down, always.
+    link: /MIGRATIONS
+  - title: HTTP & web layer
+    details: Router, middleware, typed requests, validation, and server-rendered views — Laravel-style ergonomics.
+    link: /WEB
+  - title: Auth & authorization
+    details: Guards, sessions, JWT, OAuth (PKCE), and policy-based access control out of the box.
+    link: /AUTHENTICATION
+  - title: Background work
+    details: Queue with dashboard, scheduler, events, and notifications. Long jobs off the request path.
+    link: /QUEUE
+  - title: Realtime
+    details: WebSocket hub with presence and broadcasting, ready for live features.
+    link: /REALTIME
+  - title: APIs
+    details: OpenAPI 3.1 generation with typed client codegen, plus a GraphQL schema & execution layer.
+    link: /OPENAPI
+  - title: Admin panel
+    details: Auto-generated CRUD interface over your models, with Telescope-style debugging.
+    link: /ADMIN
+---

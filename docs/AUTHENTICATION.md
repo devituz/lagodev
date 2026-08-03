@@ -453,4 +453,3 @@ th.Clear(key)                                // success: reset the counter
   signature — verify it against the provider's JWKS before trusting its claims.
 - **Throttler is in-memory and per-process.** For multi-replica deployments,
   back the rate limit with a shared store (Redis `INCR`/`EXPIRE`).
-</content>

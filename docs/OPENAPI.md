@@ -305,5 +305,3 @@ go build ./client
 - **[WEB.md](WEB.md)** — the `web` framework whose routes `Harvest`/`FromApp` read.
 - **[CLI.md](CLI.md)** — full `lago`/`artisan` command reference.
 - **[ORM.md](ORM.md)** — models that back your handlers.
-</content>
-</invoke>

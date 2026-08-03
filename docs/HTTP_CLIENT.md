@@ -316,5 +316,3 @@ Path resolution rules:
   endpoints — fast, deterministic, and offline.
 - `Body()` returns the live backing slice; copy it if you intend to
   retain or mutate it beyond the response's lifetime.
-</content>
-</invoke>
