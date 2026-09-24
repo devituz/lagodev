@@ -7,6 +7,8 @@
 package reflectutil
 
 import (
+	"database/sql"
+	"database/sql/driver"
 	"reflect"
 	"strings"
 	"sync"
@@ -315,7 +317,32 @@ func buildField(sf reflect.StructField, idx []int) *Field {
 			}
 		}
 	}
+	// A struct / *struct field without a cast that the driver cannot handle
+	// (not time.Time, not a sql.Scanner / driver.Valuer) can never be a column
+	// value; it is a single-row relation destination (BelongsTo / HasOne, e.g.
+	// `Author *User`). Persisting it made every Save fail with "no column named
+	// author".
+	if !f.IsRelation && f.Cast == "" && isRelationStruct(sf.Type) {
+		f.IsRelation = true
+	}
 	return f
+}
+
+var (
+	timeType    = reflect.TypeOf(time.Time{})
+	scannerType = reflect.TypeOf((*sql.Scanner)(nil)).Elem()
+	valuerType  = reflect.TypeOf((*driver.Valuer)(nil)).Elem()
+)
+
+func isRelationStruct(t reflect.Type) bool {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct || t == timeType {
+		return false
+	}
+	pt := reflect.PointerTo(t)
+	return !t.Implements(valuerType) && !pt.Implements(valuerType) && !pt.Implements(scannerType)
 }
 
 func indirectType(t reflect.Type) reflect.Type {

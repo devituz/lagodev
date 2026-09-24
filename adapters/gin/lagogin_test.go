@@ -369,6 +369,32 @@ func TestQueryLogHeader(t *testing.T) {
 	}
 }
 
+// Real queries never reached the counter (only manual ObserveQuery did), so
+// the header was always 0; it must count exactly this request's queries.
+func TestQueryLogCountsRealQueries(t *testing.T) {
+	conn := newTestConn(t)
+
+	r := gin.New()
+	r.Use(lagogin.QueryLogN(conn, 1000)) // no explicit Instrument call
+	r.GET("/q", lagogin.H(func(c *lagogin.Ctx) (any, error) {
+		_, _ = orm.Query[User](conn).Count(c.Ctx())
+		var users []User
+		_ = orm.Query[User](conn).Limit(1).Get(c.Ctx(), &users)
+		// Queries outside the request context are not attributed to it.
+		_, _ = orm.Query[User](conn).Count(context.Background())
+		return "ok", nil
+	}))
+	w := do(r, "GET", "/q", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	// Result().Header is the header as sent; w.Header() would also show
+	// values set after the body was written, which never reach the client.
+	if got := w.Result().Header.Get("X-DB-Query-Count"); got != "2" {
+		t.Fatalf("X-DB-Query-Count on the wire = %q, want 2", got)
+	}
+}
+
 // --- 7. OpenAPI generation ---------------------------------------------
 
 func TestOpenAPIContainsResourcePaths(t *testing.T) {

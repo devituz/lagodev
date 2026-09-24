@@ -125,7 +125,11 @@ func CORSWithConfig(cfg CORSConfig) Middleware {
 			http.MethodPatch, http.MethodDelete, http.MethodOptions,
 		}
 	}
-	if len(cfg.AllowedHeaders) == 0 {
+	// Only the default (unconfigured) header list echoes the preflight's
+	// requested headers; an explicit AllowedHeaders list is enforced
+	// (reflecting the request silently allowed any header).
+	reflectHeaders := len(cfg.AllowedHeaders) == 0
+	if reflectHeaders {
 		cfg.AllowedHeaders = []string{"Content-Type", "Authorization", "X-CSRF-Token", "X-Request-ID"}
 	}
 	if cfg.MaxAgeSeconds == 0 {
@@ -153,7 +157,7 @@ func CORSWithConfig(cfg CORSConfig) Middleware {
 			}
 			if matched {
 				h.Set("Access-Control-Allow-Methods", methods)
-				if reqHeaders := c.Request.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
+				if reqHeaders := c.Request.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" && reflectHeaders {
 					h.Set("Access-Control-Allow-Headers", reqHeaders)
 				} else {
 					h.Set("Access-Control-Allow-Headers", headers)

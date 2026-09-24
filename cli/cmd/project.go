@@ -137,11 +137,62 @@ func NewInit(_ *Env) *cobra.Command {
 			if err := writeIfNew(cmd, "routes/api.go", routesStub(module), force); err != nil {
 				return err
 			}
-			return nil
+			// 4. Project-local CLI entrypoint. The globally installed `lago`
+			// re-runs it so migrations/seeders registered in init() are
+			// visible; without it `lago migrate` reported "nothing to migrate".
+			if module == "" {
+				return nil
+			}
+			for _, pkg := range []string{"migrations", "seeders"} {
+				if err := writeIfMissing(cmd, filepath.Join(pkg, "doc.go"), pkgDocStub(pkg, projectPkgDocs[pkg])); err != nil {
+					return err
+				}
+			}
+			return writeIfNew(cmd, "cmd/lago/main.go", projectCLIStub(module), force)
 		},
 	}
 	c.Flags().BoolVar(&force, "force", false, "overwrite existing files")
 	return c
+}
+
+var projectPkgDocs = map[string]string{
+	"migrations": "Schema migrations. Generated files call migrations.Register in init().",
+	"seeders":    "Seeders register themselves in init() via seeder.Register.",
+}
+
+// writeIfMissing writes path only when it does not exist yet; an existing
+// file is left untouched without error.
+func writeIfMissing(cmd *cobra.Command, path, body string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	return writeIfNew(cmd, path, body, false)
+}
+
+// projectCLIStub is the project-local CLI entrypoint (cmd/lago/main.go). It
+// blank-imports the project's migrations and seeders so their init()
+// registrations are visible to migrate/db:seed.
+func projectCLIStub(module string) string {
+	return `// Command lago is this project's CLI entrypoint. The globally installed
+// ` + "`lago`" + ` binary re-runs it (go run ./cmd/lago) so the migrations and
+// seeders registered in init() below are visible to migrate / db:seed.
+package main
+
+import (
+	"github.com/devituz/lagodev/cli"
+
+	_ "github.com/devituz/lagodev/drivers/mysql"
+	_ "github.com/devituz/lagodev/drivers/postgres"
+	_ "github.com/devituz/lagodev/drivers/sqlite"
+
+	_ "` + module + `/migrations" // registers schema migrations via init()
+	_ "` + module + `/seeders"    // registers seeders via init()
+)
+
+func main() {
+	cli.New(cli.Options{ProjectName: "lago"}).Execute()
+}
+`
 }
 
 func mustMarshal(v any) string {

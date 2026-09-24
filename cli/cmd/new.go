@@ -208,6 +208,7 @@ func scaffoldProject(cmd *cobra.Command, opts ScaffoldOptions, force bool) error
 		{filepath.Join(root, "migrations", "doc.go"), pkgDocStub("migrations", "Schema migrations. Generated files call migrations.Register in init().")},
 		{filepath.Join(root, "factories", "doc.go"), pkgDocStub("factories", "Faker-powered model factories.")},
 		{filepath.Join(root, "seeders", "doc.go"), pkgDocStub("seeders", "Seeders register themselves in init() via seeder.Register.")},
+		{filepath.Join(root, "cmd", "lago", "main.go"), projectCLIStub(opts.Module)},
 		{filepath.Join(root, "tests", ".keep"), ""},
 		{filepath.Join(root, "services", "doc.go"), pkgDocStub("services", "Framework-agnostic CRUD services.")},
 		{filepath.Join(root, "controllers", "doc.go"), pkgDocStub("controllers", "HTTP controllers (web or lagogin flavor).")},

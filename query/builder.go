@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -118,19 +119,71 @@ func (b *Builder) addWhere(boolean string, args []any) *Builder {
 		case func(*Builder):
 			nested := newSubBuilder(b)
 			v(nested)
-			b.wheres = append(b.wheres, condition{bool: boolean, nested: nested})
+			// An empty group would compile to "()" — invalid SQL.
+			if len(nested.wheres) > 0 {
+				b.wheres = append(b.wheres, condition{bool: boolean, nested: nested})
+			}
 		default:
 			panic("query: Where with 1 arg requires func(*Builder)")
 		}
 	case 2:
-		b.wheres = append(b.wheres, condition{bool: boolean, col: asString(args[0]), op: OpEq, values: []any{args[1]}})
+		b.wheres = append(b.wheres, nullAware(condition{bool: boolean, col: asString(args[0]), op: OpEq, values: []any{args[1]}}))
 	case 3:
-		b.wheres = append(b.wheres, condition{
+		b.wheres = append(b.wheres, nullAware(condition{
 			bool: boolean, col: asString(args[0]), op: normalizeOp(asString(args[1])), values: []any{args[2]},
-		})
+		}))
 	default:
 		panic("query: Where takes 1, 2 or 3 arguments")
 	}
+	return b
+}
+
+// nullAware rewrites a comparison against a nil value into IS NULL / IS NOT
+// NULL. "col = NULL" is never true in SQL, so Where("col", nil) silently
+// matched nothing.
+func nullAware(c condition) condition {
+	if len(c.values) != 1 || !isNil(c.values[0]) {
+		return c
+	}
+	switch c.op {
+	case OpEq:
+		c.op, c.values = OpIsNull, nil
+	case OpNe:
+		c.op, c.values = OpNotNull, nil
+	}
+	return c
+}
+
+func isNil(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Interface:
+		return rv.IsNil()
+	}
+	return false
+}
+
+// WrapWheres groups the current WHERE conditions in parentheses when they
+// contain an OR, so conditions appended afterwards (scopes, cursors, key
+// lookups) apply to the whole filter instead of binding only to the last OR
+// branch. Without OR the conditions are left untouched.
+func (b *Builder) WrapWheres() *Builder {
+	hasOr := false
+	for _, c := range b.wheres {
+		if c.bool == bOr {
+			hasOr = true
+			break
+		}
+	}
+	if !hasOr {
+		return b
+	}
+	nested := newSubBuilder(b)
+	nested.wheres = b.wheres
+	b.wheres = []condition{{bool: bAnd, nested: nested}}
 	return b
 }
 
@@ -363,6 +416,9 @@ func (b *Builder) ToSQL() (string, []any, error) {
 		sb.WriteString(" ON ")
 		sb.WriteString(j.on)
 		args = append(args, j.args...)
+		// Join args occupy the first positional slots; numbered placeholders
+		// ($n on Postgres) in the WHERE clause must continue after them.
+		b.bindings += len(j.args)
 	}
 
 	if len(b.wheres) > 0 {
@@ -406,6 +462,15 @@ func (b *Builder) ToSQL() (string, []any, error) {
 	if b.limit > 0 {
 		sb.WriteString(" LIMIT ")
 		sb.WriteString(strconv.Itoa(b.limit))
+	} else if b.offset > 0 {
+		// SQLite and MySQL reject OFFSET without LIMIT; use each dialect's
+		// "no limit" form.
+		switch g.Name() {
+		case "sqlite":
+			sb.WriteString(" LIMIT -1")
+		case "mysql":
+			sb.WriteString(" LIMIT 18446744073709551615")
+		}
 	}
 	if b.offset > 0 {
 		sb.WriteString(" OFFSET ")
@@ -437,8 +502,9 @@ func (b *Builder) Count(ctx context.Context) (int64, error) {
 	var q string
 	var args []any
 	var err error
-	if len(clone.groups) > 0 {
-		// Wrap the grouped query: SELECT COUNT(*) FROM (<grouped>) sub.
+	if len(clone.groups) > 0 || clone.distinct {
+		// Wrap the grouped / DISTINCT query: SELECT COUNT(*) FROM (<inner>) sub.
+		// "SELECT DISTINCT COUNT(*)" would count all rows, not distinct ones.
 		inner, innerArgs, terr := clone.ToSQL()
 		if terr != nil {
 			return 0, terr
@@ -490,6 +556,10 @@ func (b *Builder) aggregate(ctx context.Context, fn, col string) (float64, error
 	clone := b.clone()
 	clone.cols = []string{fmt.Sprintf("%s(%s) AS aggregate", fn, b.conn.Grammar.Quote(col))}
 	clone.orders = nil
+	// Like Count, aggregate over the whole filtered set: an OFFSET on a
+	// single-row aggregate returned no row at all (sql.ErrNoRows).
+	clone.limit = 0
+	clone.offset = 0
 	q, args, err := clone.ToSQL()
 	if err != nil {
 		return 0, err
@@ -813,7 +883,20 @@ func expand(values any) []any {
 			out[i] = x
 		}
 		return out
+	case []byte:
+		return []any{v}
 	default:
+		// Any other slice/array ([]uint, []int32, []MyID, ...) is expanded
+		// element by element; passing the slice itself as one bind argument
+		// fails in every driver ("unsupported type []uint").
+		rv := reflect.ValueOf(values)
+		if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+			out := make([]any, rv.Len())
+			for i := range out {
+				out[i] = rv.Index(i).Interface()
+			}
+			return out
+		}
 		return []any{v}
 	}
 }

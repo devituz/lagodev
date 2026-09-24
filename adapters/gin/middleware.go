@@ -103,7 +103,9 @@ func RequestTimeout(d time.Duration) gin.HandlerFunc {
 // If the count crosses threshold (20 by default), a WARN is logged with the
 // request path — a cheap N+1 detector for dev environments.
 //
-// Requires the connection to be passed through Instrument() once at startup:
+// Queries are counted per request: those executed with the request's context
+// (c.Ctx() / c.Request.Context()) on conn, plus manual ObserveQuery calls.
+// QueryLog instruments conn itself; calling Instrument() first is optional:
 //
 //	conn = lagogin.Instrument(conn)
 //	r.Use(lagogin.QueryLog(conn))
@@ -118,15 +120,28 @@ func QueryLogN(conn *database.Connection, threshold int) gin.HandlerFunc {
 	return queryLogWith(conn, threshold)
 }
 
+// queryCountKey carries the per-request query counter in the request context.
+type queryCountKey struct{}
+
 func queryLogWith(conn *database.Connection, threshold int) gin.HandlerFunc {
+	Instrument(conn)
 	return func(c *gin.Context) {
+		n := new(atomic.Int64)
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), queryCountKey{}, n))
 		before := globalQueryCount(conn)
-		c.Next()
-		count := globalQueryCount(conn) - before
-		if count < 0 {
-			count = 0
+		counted := func() int64 {
+			if v := n.Load() + globalQueryCount(conn) - before; v > 0 {
+				return v
+			}
+			return 0
 		}
-		c.Writer.Header().Set("X-DB-Query-Count", strconv.FormatInt(count, 10))
+		// Headers set after the handler wrote the body never reach the
+		// client, so stamp the header when the status line is written.
+		w := &queryCountWriter{ResponseWriter: c.Writer, count: counted}
+		c.Writer = w
+		c.Next()
+		w.stamp()
+		count := counted()
 		if int(count) > threshold && conn.Log != nil {
 			conn.Log.Warnf("lagogin: %d queries on %s %s (threshold %d) — possible N+1",
 				count, c.Request.Method, c.Request.URL.Path, threshold)
@@ -134,13 +149,49 @@ func queryLogWith(conn *database.Connection, threshold int) gin.HandlerFunc {
 	}
 }
 
-// Instrument enables per-connection query counting for QueryLog. Call once
-// at startup before installing the middleware. The returned connection is
-// the same pointer — Instrument only registers it with the global counter
-// table and replaces conn.Log with a counting wrapper.
+// queryCountWriter sets X-DB-Query-Count right before the response header
+// is committed.
+type queryCountWriter struct {
+	gin.ResponseWriter
+	count   func() int64
+	stamped bool
+}
+
+func (w *queryCountWriter) stamp() {
+	if w.stamped || w.ResponseWriter.Written() {
+		return
+	}
+	w.stamped = true
+	w.Header().Set("X-DB-Query-Count", strconv.FormatInt(w.count(), 10))
+}
+
+func (w *queryCountWriter) WriteHeader(code int) {
+	w.stamp()
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *queryCountWriter) WriteHeaderNow() {
+	w.stamp()
+	w.ResponseWriter.WriteHeaderNow()
+}
+
+func (w *queryCountWriter) Write(b []byte) (int, error) {
+	w.stamp()
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *queryCountWriter) WriteString(s string) (int, error) {
+	w.stamp()
+	return w.ResponseWriter.WriteString(s)
+}
+
+// Instrument enables query counting for QueryLog. It is idempotent and
+// returns the same pointer: it registers conn with the counter table and
+// installs a database query hook that bumps the counter of the request whose
+// context the statement ran with. Logging settings are left untouched.
 //
-// The wrapper delegates Info/Warn/Error/SQL/SlowSQL to the original logger,
-// so SQL tracing and slow-query reporting continue to work unchanged.
+// Previously nothing but manual ObserveQuery calls fed the counter, so
+// X-DB-Query-Count was always 0 for real traffic.
 func Instrument(conn *database.Connection) *database.Connection {
 	if conn == nil {
 		return nil
@@ -151,7 +202,11 @@ func Instrument(conn *database.Connection) *database.Connection {
 		return conn
 	}
 	counters[conn] = new(atomic.Int64)
-	conn.Config.LogQueries = true
+	conn.OnQuery(func(ctx context.Context, _ string, _ []any, _ time.Duration, _ error) {
+		if n, ok := ctx.Value(queryCountKey{}).(*atomic.Int64); ok {
+			n.Add(1)
+		}
+	})
 	return conn
 }
 
