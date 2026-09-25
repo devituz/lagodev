@@ -8,14 +8,14 @@ go 1.26.0
 toolchain go1.26.4
 
 require (
-	github.com/brianvoe/gofakeit/v7 v7.15.0
+	github.com/brianvoe/gofakeit/v7 v7.17.1
 	github.com/fatih/color v1.19.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/joho/godotenv v1.5.1
 	github.com/manifoldco/promptui v0.9.0
-	github.com/mattn/go-sqlite3 v1.14.47
+	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.57.0
