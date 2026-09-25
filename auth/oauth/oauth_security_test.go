@@ -122,7 +122,13 @@ func TestSignedState_RejectsTampering(t *testing.T) {
 	}
 
 	// Mutate the nonce, keep the signature.
-	bad1 := "x" + parts[0][1:] + "." + parts[1] + "." + parts[2]
+	// Always change the first char; a fixed replacement is a no-op when the
+	// random nonce already starts with it.
+	first := "x"
+	if parts[0][0] == 'x' {
+		first = "y"
+	}
+	bad1 := first + parts[0][1:] + "." + parts[1] + "." + parts[2]
 	if err := s.VerifyState(bad1); err != ErrInvalidState {
 		t.Fatalf("nonce tamper = %v, want ErrInvalidState", err)
 	}

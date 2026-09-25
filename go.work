@@ -5,7 +5,7 @@
 //
 // Locally, the workspace lets edits to the main module flow through to
 // the example binaries without manual replace directives.
-go 1.25.0
+go 1.26.0
 
 toolchain go1.26.4
 
@@ -15,10 +15,10 @@ use (
 	./adapters/grpc
 	./adapters/websocket
 	./drivers/redis
-	./filesystem/s3
 	./examples/blog
 	./examples/chi
 	./examples/echo
 	./examples/fiber
 	./examples/gin
+	./filesystem/s3
 )
