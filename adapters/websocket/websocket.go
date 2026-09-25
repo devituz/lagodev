@@ -9,11 +9,11 @@
 // Architecture:
 //
 //   - Hub          — the per-app singleton. Tracks all live
-//                    connections by ID and by channel (Laravel "room").
+//     connections by ID and by channel (Laravel "room").
 //   - Connection   — a single open WebSocket; sends are non-blocking
-//                    with a bounded outbox.
+//     with a bounded outbox.
 //   - Handler      — http.Handler that performs the WebSocket
-//                    handshake and registers the connection on the Hub.
+//     handshake and registers the connection on the Hub.
 //
 // Usage:
 //

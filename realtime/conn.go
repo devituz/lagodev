@@ -33,7 +33,6 @@ package realtime
 
 import (
 	"errors"
-	"io"
 )
 
 // MessageType distinguishes a UTF-8 text frame from a binary frame.
@@ -66,10 +65,4 @@ type Conn interface {
 	ReadMessage() (MessageType, []byte, error)
 	WriteMessage(MessageType, []byte) error
 	Close() error
-}
-
-// isClosed reports whether err signals a normal end-of-connection rather
-// than an unexpected failure.
-func isClosed(err error) bool {
-	return err == nil || errors.Is(err, io.EOF) || errors.Is(err, ErrClosed) || errors.Is(err, io.ErrClosedPipe)
 }

@@ -105,7 +105,7 @@ func buildField(sf reflect.StructField) (Field, bool) {
 			f.IsUpdatedAt = true
 		}
 	case "DeletedAt":
-		if sf.Type == timeType || sf.Type == reflect.PtrTo(timeType) {
+		if sf.Type == timeType || sf.Type == reflect.PointerTo(timeType) {
 			f.IsDeletedAt = true
 		}
 	}
@@ -134,7 +134,7 @@ func buildField(sf reflect.StructField) (Field, bool) {
 
 // kindOf maps a Go type to a form-input classification.
 func kindOf(t reflect.Type) string {
-	if t == timeType || t == reflect.PtrTo(timeType) {
+	if t == timeType || t == reflect.PointerTo(timeType) {
 		return "datetime"
 	}
 	switch indirectType(t).Kind() {

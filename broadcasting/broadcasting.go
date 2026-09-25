@@ -21,10 +21,10 @@
 //
 // Compared to events:
 //   - events  — synchronous, in-process, typed via generics. For
-//                aggregating domain reactions during a single request.
+//     aggregating domain reactions during a single request.
 //   - broadcasting — many-to-many fan-out across processes (when paired
-//                with a remote driver) or within a process; subscribers
-//                hold a queue and run on their own goroutine.
+//     with a remote driver) or within a process; subscribers
+//     hold a queue and run on their own goroutine.
 package broadcasting
 
 import (

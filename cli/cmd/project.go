@@ -66,7 +66,7 @@ func LoadProject() *ProjectConfig {
 // resetProjectForTest is exported only via _test files via the unexported
 // name; it lets tests reset the cached singleton.
 //
-//nolint:unused
+//lint:ignore U1000 kept for tests that reset the cached project config
 func resetProjectForTest() {
 	projectOnce = sync.Once{}
 	project = nil

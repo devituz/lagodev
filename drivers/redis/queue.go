@@ -17,13 +17,13 @@ import (
 // Two Redis keys are used per logical queue:
 //   - "<prefix>:queue:<name>"           — LIST of ready jobs (LPUSH/BRPOPLPUSH)
 //   - "<prefix>:queue:<name>:reserved"  — sorted set of reserved jobs
-//                                         scored by their visibility-
-//                                         timeout deadline; reaper
-//                                         requeues entries past their
-//                                         deadline.
+//     scored by their visibility-
+//     timeout deadline; reaper
+//     requeues entries past their
+//     deadline.
 //   - "<prefix>:queue:<name>:delayed"   — sorted set of delayed jobs
-//                                         scored by their available_at
-//                                         epoch.
+//     scored by their available_at
+//     epoch.
 //
 // Promotion (delayed → ready and reserved-timeout → ready) is handled
 // inline on each Pop so no background worker is required.

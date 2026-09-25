@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -31,7 +30,6 @@ type App struct {
 	timeout    time.Duration
 	logger     *log.Logger
 	noDefaults bool
-	mu         sync.Mutex
 }
 
 // Option — funksional sozlash usuli.

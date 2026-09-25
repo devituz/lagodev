@@ -49,14 +49,6 @@ func NewMakeController(env *Env) *cobra.Command {
 	return c
 }
 
-func generateController(cmd *cobra.Command, env *Env, name, model string, force bool) error {
-	return generateControllerInDirFor(cmd, env, "controllers", LoadProject().Paths.Models, name, model, "web", force)
-}
-
-func generateControllerInDir(cmd *cobra.Command, env *Env, dir, modelDir, name, model string, force bool) error {
-	return generateControllerInDirFor(cmd, env, dir, modelDir, name, model, "web", force)
-}
-
 func generateControllerInDirFor(cmd *cobra.Command, env *Env, dir, modelDir, name, model, framework string, force bool) error {
 	// Always generate the service first so the controller can delegate to it.
 	serviceName := model + "Service"

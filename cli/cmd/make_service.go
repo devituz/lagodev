@@ -44,10 +44,6 @@ func NewMakeService(env *Env) *cobra.Command {
 	return c
 }
 
-func generateService(cmd *cobra.Command, env *Env, name, model string, force bool) error {
-	return generateServiceInDir(cmd, env, "services", LoadProject().Paths.Models, name, model, force)
-}
-
 func generateServiceInDir(cmd *cobra.Command, _ *Env, dir, modelDir, name, model string, force bool) error {
 	pkg := pkgFromOutDir(dir)
 	importPath, ref := resolveModelImport(dir, modelDir, model)

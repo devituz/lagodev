@@ -5,11 +5,11 @@
 // Three primitives:
 //
 //   - Clock     — controllable time source. Inject as time.Now() and
-//                 Advance it deterministically.
+//     Advance it deterministically.
 //   - Calls     — generic call recorder. Counts and stores arguments
-//                 each time a function is invoked.
+//     each time a function is invoked.
 //   - HTTPServer — pre-canned httptest.Server with route-by-method
-//                 responses and recorded request inspection.
+//     responses and recorded request inspection.
 package mock
 
 import (

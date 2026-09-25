@@ -34,9 +34,10 @@ func builtinFuncs() template.FuncMap {
 		"default": defaultVal,
 
 		// --- string helpers ------------------------------------------------
-		"upper":    strings.ToUpper,
-		"lower":    strings.ToLower,
-		"title":    strings.Title, //nolint:staticcheck // adequate for ASCII view text
+		"upper": strings.ToUpper,
+		"lower": strings.ToLower,
+		//lint:ignore SA1019 adequate for ASCII view text
+		"title":    strings.Title,
 		"trim":     strings.TrimSpace,
 		"replace":  func(old, new, s string) string { return strings.ReplaceAll(s, old, new) },
 		"contains": strings.Contains,

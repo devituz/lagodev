@@ -32,7 +32,6 @@ type variableDef struct {
 	name       string
 	typ        typeRef
 	defaultVal value
-	hasDefault bool
 }
 
 // fragmentDef is a named fragment definition (fragment Name on Type { ... }).
