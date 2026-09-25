@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version: "1.26"
           cache: true
 
       - name: Build (core)
@@ -49,7 +49,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version: "1.26"
           cache: true
 
       - name: gofmt
@@ -82,7 +82,7 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version: "1.26"
           cache: true
 
       # `-run=^$` skips tests; `-benchtime=1x` runs each bench exactly once.
