@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strconv"
 	"time"
 
 	"github.com/devituz/lagodev/casts"
@@ -119,7 +118,11 @@ func (b *Builder[T]) QB() *query.Builder { return b.qb }
 // models are returned unchanged. The clone keeps the receiver reusable across
 // terminal calls.
 func (b *Builder[T]) scopedQB() *query.Builder {
-	qb := b.qb.Clone()
+	// Group the caller's conditions first: otherwise the scope (and any
+	// cursor/key condition appended later) binds only to the last OR branch —
+	// Where(a).OrWhere(b) + scope compiled to "a OR b AND deleted_at IS NULL",
+	// leaking soft-deleted rows that match a.
+	qb := b.qb.Clone().WrapWheres()
 	if b.schema.DeletedAt == nil {
 		return qb
 	}
@@ -234,7 +237,7 @@ func Pluck[T any, V any](ctx context.Context, b *Builder[T], col string) ([]V, e
 }
 
 // hydrateRows populates dst from rows, applying casts and AfterFind.
-func hydrateRows[T any](_ context.Context, _ *database.Connection, rows *sql.Rows, schema *reflectutil.Schema, dst *[]T) error {
+func hydrateRows[T any](ctx context.Context, conn *database.Connection, rows *sql.Rows, schema *reflectutil.Schema, dst *[]T) error {
 	cols, err := rows.Columns()
 	if err != nil {
 		return err
@@ -275,111 +278,19 @@ func hydrateRows[T any](_ context.Context, _ *database.Connection, rows *sql.Row
 			}
 		}
 		*dst = append(*dst, row)
+		// AfterFind runs on the stored element so mutations made by the hook
+		// are visible to the caller.
+		if err := dispatchHook(&(*dst)[len(*dst)-1], "AfterFind", &HookContext{Ctx: ctx, Conn: conn}); err != nil {
+			return err
+		}
 	}
 	return rows.Err()
 }
 
-// assignScanned writes a value scanned from the DB (as an any holding the
-// driver's concrete type, or nil for NULL) into the destination field. NULL
-// coalesces to the field's Go zero value. The actual type conversion is
-// delegated to database/sql's convertAssign via a throwaway scan so we inherit
-// its full driver-type handling (int64→int, []byte→string, time, etc.).
+// assignScanned writes a value scanned from the DB into the destination
+// field; see reflectutil.AssignScanned.
 func assignScanned(fv reflect.Value, raw any) error {
-	if raw == nil {
-		// NULL → zero value. For pointer fields leave nil; otherwise reset.
-		fv.Set(reflect.Zero(fv.Type()))
-		return nil
-	}
-	if fv.Kind() == reflect.Ptr {
-		if fv.IsNil() {
-			fv.Set(reflect.New(fv.Type().Elem()))
-		}
-		return convertAssign(fv.Interface(), raw)
-	}
-	return convertAssign(fv.Addr().Interface(), raw)
-}
-
-// convertAssign converts src (a driver value: int64, float64, bool, []byte,
-// string or time.Time) into the pointer dest. It mirrors the subset of
-// database/sql's convertAssign that the ORM relies on, with a reflection
-// fallback for numeric/string kinds so non-default field types (int, uint,
-// float32, named string types, ...) all work.
-func convertAssign(dest, src any) error {
-	dv := reflect.ValueOf(dest).Elem()
-
-	// Fast path: src is directly assignable to the destination type.
-	sv := reflect.ValueOf(src)
-	if sv.Type().AssignableTo(dv.Type()) {
-		dv.Set(sv)
-		return nil
-	}
-
-	switch dv.Kind() {
-	case reflect.String:
-		switch s := src.(type) {
-		case string:
-			dv.SetString(s)
-			return nil
-		case []byte:
-			dv.SetString(string(s))
-			return nil
-		}
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if n, ok := toInt64(src); ok {
-			dv.SetInt(n)
-			return nil
-		}
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if n, ok := toInt64(src); ok {
-			dv.SetUint(uint64(n))
-			return nil
-		}
-	case reflect.Float32, reflect.Float64:
-		switch f := src.(type) {
-		case float64:
-			dv.SetFloat(f)
-			return nil
-		case int64:
-			dv.SetFloat(float64(f))
-			return nil
-		}
-	case reflect.Bool:
-		switch v := src.(type) {
-		case bool:
-			dv.SetBool(v)
-			return nil
-		case int64:
-			dv.SetBool(v != 0)
-			return nil
-		}
-	}
-
-	// Convertible numeric/string kinds (e.g. []byte → string already handled).
-	if sv.Type().ConvertibleTo(dv.Type()) {
-		dv.Set(sv.Convert(dv.Type()))
-		return nil
-	}
-	return fmt.Errorf("orm: cannot assign %T to %s", src, dv.Type())
-}
-
-func toInt64(src any) (int64, bool) {
-	switch n := src.(type) {
-	case int64:
-		return n, true
-	case int:
-		return int64(n), true
-	case float64:
-		return int64(n), true
-	case []byte:
-		if v, err := strconv.ParseInt(string(n), 10, 64); err == nil {
-			return v, true
-		}
-	case string:
-		if v, err := strconv.ParseInt(n, 10, 64); err == nil {
-			return v, true
-		}
-	}
-	return 0, false
+	return reflectutil.AssignScanned(fv, raw)
 }
 
 // Save persists a model: it inserts when the primary key is zero, otherwise
@@ -390,12 +301,26 @@ func Save[T any](ctx context.Context, conn *database.Connection, model *T) error
 	v := reflect.ValueOf(model).Elem()
 	hctx := &HookContext{Ctx: ctx, Conn: conn}
 
-	// Decide whether this is a create or an update.
-	isCreate := false
-	if pk := schema.PrimaryKey; pk != nil {
+	tableName := tableNameFor(model, schema)
+
+	// Decide whether this is a create or an update. A zero key means create.
+	// A caller-assigned key on a non-auto-increment primary key (UUID,
+	// natural key) says nothing about whether the row exists yet, so look it
+	// up; treating it as an update silently dropped every new row. A model
+	// without a primary key can only be inserted.
+	pk := schema.PrimaryKey
+	isCreate := pk == nil
+	if pk != nil {
 		fv := v.FieldByIndex(pk.Index)
-		if fv.IsZero() {
+		switch {
+		case fv.IsZero():
 			isCreate = true
+		case !pk.IsAutoIncrement:
+			exists, err := query.New(conn, tableName).Where(pk.Column, "=", fv.Interface()).Exists(ctx)
+			if err != nil {
+				return err
+			}
+			isCreate = !exists
 		}
 	}
 
@@ -419,16 +344,21 @@ func Save[T any](ctx context.Context, conn *database.Connection, model *T) error
 		if err := dispatchHook(model, "BeforeCreate", hctx); err != nil {
 			return err
 		}
-		values := collectValues(schema, v, true)
-		tableName := tableNameFor(model, schema)
-		id, err := query.New(conn, tableName).
-			InsertGetID(ctx, values, schema.PrimaryKey.Column)
+		values, err := collectValues(schema, v, true)
 		if err != nil {
 			return err
 		}
-		pkVal := v.FieldByIndex(schema.PrimaryKey.Index)
-		if pkVal.CanSet() {
-			pkVal.Set(reflect.ValueOf(id).Convert(pkVal.Type()))
+		if pk != nil && v.FieldByIndex(pk.Index).IsZero() && isIntegerKind(pk.Type.Kind()) {
+			id, err := query.New(conn, tableName).InsertGetID(ctx, values, pk.Column)
+			if err != nil {
+				return err
+			}
+			if pkVal := v.FieldByIndex(pk.Index); pkVal.CanSet() {
+				pkVal.Set(reflect.ValueOf(id).Convert(pkVal.Type()))
+			}
+		} else if _, err := query.New(conn, tableName).Insert(ctx, values); err != nil {
+			// Caller-assigned (or absent) key: nothing to read back.
+			return err
 		}
 		if err := dispatchHook(model, "AfterCreate", hctx); err != nil {
 			return err
@@ -445,9 +375,11 @@ func Save[T any](ctx context.Context, conn *database.Connection, model *T) error
 	if err := dispatchHook(model, "BeforeUpdate", hctx); err != nil {
 		return err
 	}
-	values := collectUpdateValues(schema, v)
+	values, err := collectUpdateValues(schema, v)
+	if err != nil {
+		return err
+	}
 	pkVal := v.FieldByIndex(schema.PrimaryKey.Index).Interface()
-	tableName := tableNameFor(model, schema)
 	if _, err := query.New(conn, tableName).
 		Where(schema.PrimaryKey.Column, "=", pkVal).
 		Update(ctx, values); err != nil {
@@ -559,7 +491,7 @@ func setDeletedAt(fv reflect.Value, t *time.Time) {
 	fv.Set(reflect.ValueOf(*t))
 }
 
-func collectValues(schema *reflectutil.Schema, v reflect.Value, forInsert bool) map[string]any {
+func collectValues(schema *reflectutil.Schema, v reflect.Value, forInsert bool) (map[string]any, error) {
 	out := make(map[string]any, len(schema.Fields))
 	for _, f := range schema.Fields {
 		if f.Skip || f.IsRelation {
@@ -569,24 +501,47 @@ func collectValues(schema *reflectutil.Schema, v reflect.Value, forInsert bool) 
 		if forInsert && f.IsAutoIncrement && fv.IsZero() {
 			continue
 		}
-		val := fv.Interface()
-		if f.Cast != "" {
-			if c := casts.Get(f.Cast); c != nil {
-				if conv, err := c.ToDB(val); err == nil {
-					val = conv
-				}
-			}
+		val, err := castToDB(f, fv.Interface())
+		if err != nil {
+			return nil, err
 		}
 		out[f.Column] = val
 	}
-	return out
+	return out, nil
+}
+
+// castToDB applies the field's registered cast, if any. A failing cast is an
+// error: silently falling back to the raw Go value wrote unconverted data (or
+// failed later with an unrelated driver error).
+func castToDB(f *reflectutil.Field, val any) (any, error) {
+	if f.Cast == "" {
+		return val, nil
+	}
+	c := casts.Get(f.Cast)
+	if c == nil {
+		return val, nil
+	}
+	conv, err := c.ToDB(val)
+	if err != nil {
+		return nil, fmt.Errorf("orm: cast %s on %s: %w", f.Cast, f.Column, err)
+	}
+	return conv, nil
+}
+
+func isIntegerKind(k reflect.Kind) bool {
+	switch k {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return true
+	}
+	return false
 }
 
 // collectUpdateValues builds the SET map for an UPDATE. It excludes the
 // primary key (it is matched in WHERE, never reassigned) and created_at (an
 // immutable timestamp that must survive updates); updated_at is included so it
 // continues to advance.
-func collectUpdateValues(schema *reflectutil.Schema, v reflect.Value) map[string]any {
+func collectUpdateValues(schema *reflectutil.Schema, v reflect.Value) (map[string]any, error) {
 	out := make(map[string]any, len(schema.Fields))
 	for _, f := range schema.Fields {
 		if f.Skip || f.IsRelation {
@@ -595,18 +550,13 @@ func collectUpdateValues(schema *reflectutil.Schema, v reflect.Value) map[string
 		if f.IsPrimary || f.IsCreatedAt {
 			continue
 		}
-		fv := v.FieldByIndex(f.Index)
-		val := fv.Interface()
-		if f.Cast != "" {
-			if c := casts.Get(f.Cast); c != nil {
-				if conv, err := c.ToDB(val); err == nil {
-					val = conv
-				}
-			}
+		val, err := castToDB(f, v.FieldByIndex(f.Index).Interface())
+		if err != nil {
+			return nil, err
 		}
 		out[f.Column] = val
 	}
-	return out
+	return out, nil
 }
 
 // errChunkNeedsPK is returned by Chunk when the model has no primary key to

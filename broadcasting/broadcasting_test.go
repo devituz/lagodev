@@ -174,6 +174,7 @@ func TestConcurrentPublishSubscribe(t *testing.T) {
 			return nil
 		})
 		subs = append(subs, s)
+		_ = subs
 	}
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {

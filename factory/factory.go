@@ -26,7 +26,6 @@ type Factory[T any] struct {
 	states      []StateFn[T]
 	overrides   []func(m *T)
 	count       int
-	beforeSave  []func(m *T)
 	afterMake   []func(m *T)
 	afterCreate []func(ctx context.Context, m *T) error
 	faker       *Faker

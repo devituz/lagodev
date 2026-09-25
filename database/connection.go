@@ -79,6 +79,23 @@ type Connection struct {
 
 	mu     sync.RWMutex
 	closed bool
+	hooks  []QueryHook
+}
+
+// QueryHook observes every statement executed through a Connection (not
+// through a Tx): the SQL, its args, the elapsed time and the error, if any.
+type QueryHook func(ctx context.Context, query string, args []any, took time.Duration, err error)
+
+// OnQuery registers a hook invoked after each statement the connection
+// executes. Hooks run synchronously on the calling goroutine and must be
+// cheap and safe for concurrent use.
+func (c *Connection) OnQuery(h QueryHook) {
+	if h == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hooks = append(c.hooks, h)
 }
 
 // ErrClosed is returned by exec/query/transaction methods called after the
@@ -200,6 +217,12 @@ func (c *Connection) TransactionWith(ctx context.Context, opts *sql.TxOptions, f
 }
 
 func (c *Connection) observe(ctx context.Context, query string, args []any, took time.Duration, err error) {
+	c.mu.RLock()
+	hooks := c.hooks
+	c.mu.RUnlock()
+	for _, h := range hooks {
+		h(ctx, query, args, took, err)
+	}
 	if c.Log == nil {
 		return
 	}

@@ -3,6 +3,25 @@
 All notable changes are recorded here. Versions follow [SemVer](https://semver.org/).
 Pre-`v1.0.0` releases may include breaking changes between minor versions.
 
+## Unreleased
+
+Bug sweep (fix/bug-sweep-2026-09). Every fix ships with a regression test.
+
+### Fixed
+- **`orm` — `sql.Scanner` fields (`sql.NullString`, `*sql.NullString`, ...) failed to hydrate**; numeric columns read into `string` fields became a rune; textual numbers/booleans (MySQL text protocol) failed for float/bool/uint fields.
+- **`orm` — `AfterFind` hook was never invoked.**
+- **`orm` — `Save` never inserted models with a caller-assigned non-auto-increment key** (UUID/string PK); models without a PK panicked.
+- **`orm` — `*Struct` relation fields without a `relation` tag were persisted as columns**, so `Save` failed (`no column named author`).
+- **`orm` — `Paginate` and `Chunk` ignored `With(...)`.**
+- **`orm` — soft-delete scope / `Chunk` cursor bound only to the last `OrWhere` branch**, leaking trashed rows and looping forever in `Chunk`.
+- **`orm` — cast `ToDB` errors were swallowed.**
+- **`relations` — NULL columns and mismatched key types (uint64 vs int64/[]byte) broke eager loading.**
+- **`query` — `Offset` without `Limit` was a syntax error on SQLite/MySQL; `WhereIn` rejected slice types other than a fixed list; `Where(col, nil)` compiled to `= NULL`; `Distinct().Count()` counted all rows; aggregates with `Offset` returned `sql.ErrNoRows`; empty nested groups rendered `()`; Postgres placeholders ignored `Join` args.** New `Builder.WrapWheres()`.
+- **`migrations` — Postgres advisory lock could be released on a different pooled session** (lock leaked, next migrator blocked forever) and ignored the timeout.
+- **`cli` — `lago migrate` never saw project migrations.** `lago init`/`lago new` now scaffold `cmd/lago/main.go`; both `lago` and `artisan` re-run it for registry-dependent commands.
+- **`adapters/gin` — `X-DB-Query-Count` was always 0 and set after the body was written.** New `database.Connection.OnQuery` hook.
+- **`web` — `CORSWithConfig` ignored an explicit `AllowedHeaders` list.**
+
 ## v0.26.0 — 2026-06-25
 
 Production-hardening release. A fleet of adversarial test agents (load, fuzz,

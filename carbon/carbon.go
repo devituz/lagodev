@@ -103,18 +103,18 @@ func (c Carbon) DateTime() string { return c.t.Format("2006-01-02 15:04:05") }
 
 // --- arithmetic ---------------------------------------------------------
 
-func (c Carbon) Add(d time.Duration) Carbon  { return Carbon{t: c.t.Add(d)} }
-func (c Carbon) Sub(o Carbon) time.Duration  { return c.t.Sub(o.t) }
-func (c Carbon) AddSeconds(n int) Carbon     { return c.Add(time.Duration(n) * time.Second) }
-func (c Carbon) AddMinutes(n int) Carbon     { return c.Add(time.Duration(n) * time.Minute) }
-func (c Carbon) AddHours(n int) Carbon       { return c.Add(time.Duration(n) * time.Hour) }
-func (c Carbon) AddDays(n int) Carbon        { return Carbon{t: c.t.AddDate(0, 0, n)} }
-func (c Carbon) AddWeeks(n int) Carbon       { return Carbon{t: c.t.AddDate(0, 0, n*7)} }
-func (c Carbon) AddMonths(n int) Carbon      { return Carbon{t: c.t.AddDate(0, n, 0)} }
-func (c Carbon) AddYears(n int) Carbon       { return Carbon{t: c.t.AddDate(n, 0, 0)} }
-func (c Carbon) SubDays(n int) Carbon        { return c.AddDays(-n) }
-func (c Carbon) SubMonths(n int) Carbon      { return c.AddMonths(-n) }
-func (c Carbon) SubYears(n int) Carbon       { return c.AddYears(-n) }
+func (c Carbon) Add(d time.Duration) Carbon { return Carbon{t: c.t.Add(d)} }
+func (c Carbon) Sub(o Carbon) time.Duration { return c.t.Sub(o.t) }
+func (c Carbon) AddSeconds(n int) Carbon    { return c.Add(time.Duration(n) * time.Second) }
+func (c Carbon) AddMinutes(n int) Carbon    { return c.Add(time.Duration(n) * time.Minute) }
+func (c Carbon) AddHours(n int) Carbon      { return c.Add(time.Duration(n) * time.Hour) }
+func (c Carbon) AddDays(n int) Carbon       { return Carbon{t: c.t.AddDate(0, 0, n)} }
+func (c Carbon) AddWeeks(n int) Carbon      { return Carbon{t: c.t.AddDate(0, 0, n*7)} }
+func (c Carbon) AddMonths(n int) Carbon     { return Carbon{t: c.t.AddDate(0, n, 0)} }
+func (c Carbon) AddYears(n int) Carbon      { return Carbon{t: c.t.AddDate(n, 0, 0)} }
+func (c Carbon) SubDays(n int) Carbon       { return c.AddDays(-n) }
+func (c Carbon) SubMonths(n int) Carbon     { return c.AddMonths(-n) }
+func (c Carbon) SubYears(n int) Carbon      { return c.AddYears(-n) }
 
 // --- boundaries ---------------------------------------------------------
 

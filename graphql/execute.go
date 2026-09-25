@@ -832,6 +832,7 @@ func coerceScalar(s *Scalar, val any) (any, error) {
 		if b, ok := val.(bool); ok {
 			return b, nil
 		}
+		//lint:ignore ST1005 message wording follows the GraphQL spec
 		return nil, fmt.Errorf("Boolean cannot represent %T", val)
 	case "ID":
 		switch v := val.(type) {

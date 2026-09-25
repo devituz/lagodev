@@ -34,10 +34,6 @@ func NewMakeSeeder(env *Env) *cobra.Command {
 	return c
 }
 
-func generateSeeder(cmd *cobra.Command, env *Env, name string, force bool) error {
-	return generateSeederInDir(cmd, env, "seeders", name, force)
-}
-
 func generateSeederInDir(cmd *cobra.Command, _ *Env, dir, name string, force bool) error {
 	pkg := pkgFromOutDir(dir)
 	path := filepath.Join(dir, inflect.Snake(name)+".go")

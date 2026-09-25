@@ -4,7 +4,10 @@
 //	go install github.com/devituz/lagodev/cmd/lago@latest    # → lago migrate
 //	go install github.com/devituz/lagodev/cmd/artisan@latest # → artisan migrate
 //
-// Both binaries share the same command tree, drivers, and flags.
+// Both binaries share the same command tree, drivers, and flags. Inside a
+// project that has cmd/lago/main.go (scaffolded by `lago init` / `lago new`)
+// or cmd/artisan/main.go, the command is re-run through that project-local
+// entrypoint so the project's migrations and seeders are registered.
 package main
 
 import (
@@ -16,6 +19,9 @@ import (
 )
 
 func main() {
+	if cli.RunProjectBinary() {
+		return
+	}
 	app := cli.New(cli.Options{ProjectName: "lago"})
 	app.Execute()
 }

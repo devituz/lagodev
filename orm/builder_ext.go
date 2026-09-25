@@ -45,6 +45,10 @@ func (b *Builder[T]) Paginate(ctx context.Context, page, perPage int) (*Paginato
 	if err := hydrateRows[T](ctx, b.conn, rows, b.schema, &data); err != nil {
 		return nil, err
 	}
+	rows.Close()
+	if err := b.eagerLoad(ctx, &data); err != nil {
+		return nil, err
+	}
 
 	lastPage := int((total + int64(perPage) - 1) / int64(perPage))
 	if lastPage < 1 {
@@ -77,6 +81,8 @@ func (b *Builder[T]) Chunk(ctx context.Context, size int, fn func([]T) error) er
 
 	var lastID any
 	for {
+		// scopedQB already grouped any OR-ed user conditions, so the cursor
+		// ANDs with the whole filter.
 		qb := b.scopedQB().OrderBy(pkCol, "asc").Limit(size)
 		if lastID != nil {
 			qb.Where(pkCol, ">", lastID)
@@ -93,6 +99,9 @@ func (b *Builder[T]) Chunk(ctx context.Context, size int, fn func([]T) error) er
 		}
 		if len(batch) == 0 {
 			return nil
+		}
+		if err := b.eagerLoad(ctx, &batch); err != nil {
+			return err
 		}
 		if err := fn(batch); err != nil {
 			return err

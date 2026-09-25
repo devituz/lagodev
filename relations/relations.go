@@ -6,11 +6,15 @@ package relations
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
+	"strconv"
 	"strings"
 
+	"github.com/devituz/lagodev/casts"
 	"github.com/devituz/lagodev/database"
 	"github.com/devituz/lagodev/internal/inflect"
 	"github.com/devituz/lagodev/internal/reflectutil"
@@ -138,25 +142,15 @@ func (r *Relation) loadHasOrMorph(ctx context.Context, parents []any, assign fun
 	buckets := map[any]reflect.Value{} // []Child per parent
 	sliceType := reflect.SliceOf(childType)
 	for rows.Next() {
-		child := reflect.New(childType).Elem()
-		scanTargets := make([]any, len(cols))
-		for i, c := range cols {
-			f := childSchema.FieldByColumn(c)
-			if f == nil {
-				var raw any
-				scanTargets[i] = &raw
-				continue
-			}
-			scanTargets[i] = child.FieldByIndex(f.Index).Addr().Interface()
-		}
-		if err := rows.Scan(scanTargets...); err != nil {
+		child, _, err := scanChild(rows, cols, childType, childSchema, "")
+		if err != nil {
 			return err
 		}
 		fkField := childSchema.FieldByColumn(r.ForeignKey)
 		if fkField == nil {
 			return fmt.Errorf("relations: foreign key %q not found on child", r.ForeignKey)
 		}
-		key := child.FieldByIndex(fkField.Index).Interface()
+		key := normalizeKey(child.FieldByIndex(fkField.Index).Interface())
 		bucket, ok := buckets[key]
 		if !ok {
 			bucket = reflect.MakeSlice(sliceType, 0, 1)
@@ -200,25 +194,21 @@ func (r *Relation) loadBelongsTo(ctx context.Context, parents []any, assign func
 		return err
 	}
 	defer rows.Close()
-	cols, _ := rows.Columns()
+	cols, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+	ownerField := childSchema.FieldByColumn(r.OwnerKey)
+	if ownerField == nil {
+		return fmt.Errorf("relations: owner key %q not found on related model", r.OwnerKey)
+	}
 	results := map[any]reflect.Value{}
 	for rows.Next() {
-		child := reflect.New(childType).Elem()
-		scanTargets := make([]any, len(cols))
-		for i, c := range cols {
-			f := childSchema.FieldByColumn(c)
-			if f == nil {
-				var raw any
-				scanTargets[i] = &raw
-				continue
-			}
-			scanTargets[i] = child.FieldByIndex(f.Index).Addr().Interface()
-		}
-		if err := rows.Scan(scanTargets...); err != nil {
+		child, _, err := scanChild(rows, cols, childType, childSchema, "")
+		if err != nil {
 			return err
 		}
-		ownerField := childSchema.FieldByColumn(r.OwnerKey)
-		k := child.FieldByIndex(ownerField.Index).Interface()
+		k := normalizeKey(child.FieldByIndex(ownerField.Index).Interface())
 		results[k] = child
 	}
 	if err := rows.Err(); err != nil {
@@ -266,29 +256,21 @@ func (r *Relation) loadBelongsToMany(ctx context.Context, parents []any, assign 
 		return err
 	}
 	defer rows.Close()
-	cols, _ := rows.Columns()
+	cols, err := rows.Columns()
+	if err != nil {
+		return err
+	}
 	sliceType := reflect.SliceOf(childType)
 	buckets := map[any]reflect.Value{}
 	for rows.Next() {
-		child := reflect.New(childType).Elem()
-		var parentKey any
-		scanTargets := make([]any, len(cols))
-		for i, c := range cols {
-			if c == "__parent_fk" {
-				scanTargets[i] = &parentKey
-				continue
-			}
-			f := childSchema.FieldByColumn(c)
-			if f == nil {
-				var raw any
-				scanTargets[i] = &raw
-				continue
-			}
-			scanTargets[i] = child.FieldByIndex(f.Index).Addr().Interface()
-		}
-		if err := rows.Scan(scanTargets...); err != nil {
+		child, rawParentKey, err := scanChild(rows, cols, childType, childSchema, "__parent_fk")
+		if err != nil {
 			return err
 		}
+		// The pivot FK arrives as the driver's type (int64, or []byte on
+		// MySQL) while parent keys carry the model's field type (uint64 for
+		// orm.Model); normalize so they land in the same bucket.
+		parentKey := normalizeKey(rawParentKey)
 		bucket, ok := buckets[parentKey]
 		if !ok {
 			bucket = reflect.MakeSlice(sliceType, 0, 1)
@@ -309,6 +291,94 @@ func (r *Relation) loadBelongsToMany(ctx context.Context, parents []any, assign 
 		}
 	}
 	return nil
+}
+
+// scanChild scans the current row into a fresh value of childType. Columns are
+// read through *any holders so SQL NULL coalesces to the field's zero value and
+// `cast` tags are honored, matching orm's own hydration; scanning straight into
+// the fields failed on any nullable column ("converting NULL to string is
+// unsupported"). When extraCol is non-empty, that column's raw value is
+// returned instead of being assigned to the child.
+func scanChild(rows *sql.Rows, cols []string, childType reflect.Type, schema *reflectutil.Schema, extraCol string) (reflect.Value, any, error) {
+	child := reflect.New(childType).Elem()
+	holders := make([]any, len(cols))
+	for i := range cols {
+		holders[i] = new(any)
+	}
+	if err := rows.Scan(holders...); err != nil {
+		return child, nil, err
+	}
+	var extra any
+	for i, c := range cols {
+		raw := *(holders[i].(*any))
+		if extraCol != "" && c == extraCol {
+			extra = raw
+			continue
+		}
+		f := schema.FieldByColumn(c)
+		if f == nil {
+			continue
+		}
+		fv := child.FieldByIndex(f.Index)
+		if f.Cast != "" {
+			if cst := casts.Get(f.Cast); cst != nil {
+				if err := cst.FromDB(raw, fv.Addr().Interface()); err != nil {
+					return child, nil, fmt.Errorf("relations: cast %s on %s: %w", f.Cast, f.Column, err)
+				}
+			}
+			continue
+		}
+		if err := reflectutil.AssignScanned(fv, raw); err != nil {
+			return child, nil, fmt.Errorf("relations: scan %s: %w", f.Column, err)
+		}
+	}
+	return child, extra, nil
+}
+
+// normalizeKey maps a key value to a canonical comparable form so parent keys
+// and child/pivot keys match in map lookups regardless of their Go type: a
+// uint64 model ID, an int FK field and the int64 (or []byte) a driver returns
+// must all compare equal. Integers become int64, numeric strings/bytes are
+// parsed, other strings stay strings, and nil pointers become nil.
+func normalizeKey(v any) any {
+	rv := reflect.ValueOf(v)
+	for rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return nil
+		}
+		rv = rv.Elem()
+	}
+	switch rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return rv.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		if u := rv.Uint(); u <= math.MaxInt64 {
+			return int64(u)
+		}
+		return rv.Uint()
+	case reflect.Float32, reflect.Float64:
+		if f := rv.Float(); f == math.Trunc(f) && f >= math.MinInt64 && f <= math.MaxInt64 {
+			return int64(f)
+		}
+		return rv.Float()
+	case reflect.String:
+		return normalizeStringKey(rv.String())
+	case reflect.Slice:
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			return normalizeStringKey(string(rv.Bytes()))
+		}
+	}
+	if rv.IsValid() && rv.Type().Comparable() {
+		return rv.Interface()
+	}
+	return v
+}
+
+func normalizeStringKey(s string) any {
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil && strconv.FormatInt(n, 10) == s {
+		return n
+	}
+	return s
 }
 
 // tabler mirrors orm.Tabler so a related model can override its inferred table
@@ -358,7 +428,11 @@ func collectParentKeys(parents []any, col string) ([]any, map[any][]any) {
 		if f == nil {
 			continue
 		}
-		key := v.FieldByIndex(f.Index).Interface()
+		key := normalizeKey(v.FieldByIndex(f.Index).Interface())
+		if key == nil {
+			// A NULL (nil pointer) key cannot match any related row.
+			continue
+		}
 		if _, ok := seen[key]; !ok {
 			seen[key] = struct{}{}
 			keys = append(keys, key)

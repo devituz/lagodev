@@ -32,10 +32,6 @@ func NewMakeTest(env *Env) *cobra.Command {
 	return c
 }
 
-func generateTest(cmd *cobra.Command, env *Env, name string, force bool) error {
-	return generateTestInDir(cmd, env, "tests", name, force)
-}
-
 func generateTestInDir(cmd *cobra.Command, _ *Env, dir, name string, force bool) error {
 	pkg := pkgFromOutDir(dir)
 	base := strings.TrimSuffix(inflect.Snake(name), "_test") + "_test"

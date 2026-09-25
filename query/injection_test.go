@@ -22,9 +22,9 @@ var injectionPayloads = []string{
 	"1; DELETE FROM users",
 	"admin'--",
 	"' UNION SELECT password FROM users --",
-	"Ada\x00Lovelace", // embedded NUL
-	"O'Brien",         // legitimate apostrophe
-	"café — 日本語 — ‮",  // unicode incl. RTL override
+	"Ada\x00Lovelace",     // embedded NUL
+	"O'Brien",             // legitimate apostrophe
+	"café — 日本語 — \u202e", // unicode incl. RTL override
 	"%' OR '1'='1",
 	"\\'; DROP TABLE x; --",
 }

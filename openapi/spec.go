@@ -337,7 +337,7 @@ func (s *Spec) build() document {
 		Paths: s.paths,
 	}
 	for _, sv := range s.servers {
-		doc.Servers = append(doc.Servers, serverObj{URL: sv.URL, Description: sv.Description})
+		doc.Servers = append(doc.Servers, serverObj(sv))
 	}
 	if names := s.registry.names(); len(names) > 0 {
 		schemas := make(map[string]*Schema, len(names))

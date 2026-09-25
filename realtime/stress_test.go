@@ -99,8 +99,8 @@ func stressScale(t *testing.T) (clients, channels, broadcasts int) {
 func TestStressBroadcastStormPresenceChurn(t *testing.T) {
 	clients, channels, broadcasts := stressScale(t)
 
-	base := settleGoroutines(0, 0, time.Second) // quiesce before measuring
-	base = runtime.NumGoroutine()
+	settleGoroutines(0, 0, time.Second) // quiesce before measuring
+	base := runtime.NumGoroutine()
 
 	var presenceEvents uint64
 	h := NewHub(
@@ -202,8 +202,8 @@ func TestStressSlowConsumerDrop(t *testing.T) {
 	clients, channels, broadcasts := stressScale(t)
 	const outbox = 16
 
-	base := settleGoroutines(0, 0, time.Second)
-	base = runtime.NumGoroutine()
+	settleGoroutines(0, 0, time.Second)
+	base := runtime.NumGoroutine()
 
 	h := NewHub(WithOutbox(outbox), WithSlowConsumerPolicy(DropMessage))
 
@@ -263,8 +263,8 @@ func TestStressSlowConsumerDrop(t *testing.T) {
 func TestStressSlowConsumerDisconnect(t *testing.T) {
 	clients, channels, broadcasts := stressScale(t)
 
-	base := settleGoroutines(0, 0, time.Second)
-	base = runtime.NumGoroutine()
+	settleGoroutines(0, 0, time.Second)
+	base := runtime.NumGoroutine()
 
 	h := NewHub(WithOutbox(8), WithSlowConsumerPolicy(DisconnectClient))
 

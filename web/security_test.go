@@ -472,6 +472,27 @@ func TestCORSWithConfig_StrictByDefault(t *testing.T) {
 	}
 }
 
+// An explicit AllowedHeaders list was ignored: the preflight's requested
+// headers were echoed back, allowing any header.
+func TestCORSWithConfig_EnforcesAllowedHeaders(t *testing.T) {
+	origin := "https://app.example.com"
+	preflight := func(mw Middleware) string {
+		req := httptest.NewRequest(http.MethodOptions, "/", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Headers", "X-Evil, Content-Type")
+		rec := runHandler(t, req, func(c *Context) (any, error) { return nil, nil }, mw)
+		return rec.Header().Get("Access-Control-Allow-Headers")
+	}
+	strict := CORSWithConfig(CORSConfig{AllowedOrigins: []string{origin}, AllowedHeaders: []string{"Content-Type"}})
+	if got := preflight(strict); got != "Content-Type" {
+		t.Fatalf("configured AllowedHeaders must be enforced, got %q", got)
+	}
+	loose := CORSWithConfig(CORSConfig{AllowedOrigins: []string{origin}})
+	if got := preflight(loose); got != "X-Evil, Content-Type" {
+		t.Fatalf("default config keeps echoing requested headers, got %q", got)
+	}
+}
+
 func TestCORS_WildcardWithCredentialsPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

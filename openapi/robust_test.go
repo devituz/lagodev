@@ -179,17 +179,18 @@ func TestSchemaOf_AnonymousStruct(t *testing.T) {
 // time.Time, []byte and json tag variants in one struct.
 func TestSchemaOf_AssortedKinds(t *testing.T) {
 	type kitchen struct {
-		Ptr       *int           `json:"ptr"`
-		Slice     []string       `json:"slice"`
-		Map       map[string]int `json:"map"`
-		Any       any            `json:"any"`
-		Iface     interface{}    `json:"iface"`
-		When      time.Time      `json:"when"`
-		Bytes     []byte         `json:"bytes"`
-		Omit      string         `json:"omit,omitempty"`
-		Skipped   string         `json:"-"`
-		unexp     string         // unexported, must be ignored
-		Renamed   string         `json:"renamed_field"`
+		Ptr     *int           `json:"ptr"`
+		Slice   []string       `json:"slice"`
+		Map     map[string]int `json:"map"`
+		Any     any            `json:"any"`
+		Iface   interface{}    `json:"iface"`
+		When    time.Time      `json:"when"`
+		Bytes   []byte         `json:"bytes"`
+		Omit    string         `json:"omit,omitempty"`
+		Skipped string         `json:"-"`
+		//lint:ignore U1000 fixture: unexported field must be skipped
+		unexp     string
+		Renamed   string `json:"renamed_field"`
 		NoTagName string
 	}
 	var s *openapi.Schema
@@ -242,6 +243,7 @@ func TestSchemaOf_EmbeddedRecursive(t *testing.T) {
 }
 
 type embedSelf struct {
+	//lint:ignore U1000 fixture: self-embedding cycle
 	*embedSelf
 	Value string `json:"value"`
 }

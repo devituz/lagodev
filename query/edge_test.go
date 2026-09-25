@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,16 +42,23 @@ func TestEdge_WhereInNilValue(t *testing.T) {
 	assert.Nil(t, args[2])
 }
 
-// TestEdge_WhereNilValue: a nil value in a plain Where binds as a nil arg
-// (not inlined as the literal text "NULL"/"<nil>").
+// TestEdge_WhereNilValue: a nil value in a plain Where compiles to IS NULL /
+// IS NOT NULL ("col = NULL" never matches in SQL) and is never inlined as the
+// literal text "<nil>".
 func TestEdge_WhereNilValue(t *testing.T) {
 	b := query.New(conn(sqlite.Grammar{}), "users").Where("deleted_at", "=", nil)
 	sql, args, err := b.ToSQL()
 	require.NoError(t, err)
-	assert.Equal(t, 1, strings.Count(sql, "?"))
-	require.Len(t, args, 1)
-	assert.Nil(t, args[0])
+	assert.Contains(t, sql, `"deleted_at" IS NULL`)
+	assert.Empty(t, args)
 	assert.NotContains(t, sql, "<nil>")
+
+	var nilTime *time.Time
+	b = query.New(conn(sqlite.Grammar{}), "users").Where("deleted_at", "!=", nilTime).OrWhere("name", nil)
+	sql, args, err = b.ToSQL()
+	require.NoError(t, err)
+	assert.Contains(t, sql, `"deleted_at" IS NOT NULL OR "name" IS NULL`)
+	assert.Empty(t, args)
 }
 
 // TestEdge_LongInList: a very long IN list keeps placeholder/args count in

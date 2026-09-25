@@ -71,10 +71,10 @@ func adversarialValues() []any {
 		map[string]int{}, map[string]int{"k": 1},
 		[3]int{1, 2, 3},
 		long,
-		"السلام عليكم", // Arabic / RTL
-		"‮evil‬",       // RTL override embedded
-		"日本語テスト",       // CJK
-		"emoji 🚀🔥💥",    // multibyte emoji
+		"السلام عليكم",     // Arabic / RTL
+		"\u202eevil\u202c", // RTL override embedded
+		"日本語テスト",           // CJK
+		"emoji 🚀🔥💥",        // multibyte emoji
 		"\x00\x01\x02null bytes",
 		weird{X: 1},
 		&weird{X: 2},
@@ -238,9 +238,7 @@ func TestMalformedTagsNoPanic(t *testing.T) {
 			// Build a struct value dynamically is awkward; instead drive the
 			// same parse + dispatch path through Map using split rules.
 			var rules []string
-			for _, r := range splitRules(tag) {
-				rules = append(rules, r)
-			}
+			rules = append(rules, splitRules(tag)...)
 			_ = Map(map[string]any{"f": "value", "f_confirmation": "value"}, Rules{"f": rules})
 		}()
 	}
